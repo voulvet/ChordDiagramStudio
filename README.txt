@@ -53,3 +53,8 @@ COMMAND LINE (optional)
       ./chordstudio -exclude "Biochemistry" -alpha 0.01 data.xlsx
 
   The "source" folder contains the Go source code.
+
+**AI DISCLOSURE** 
+The source code of Chord Diagram Studio was generated with Claude (Anthropic), an AI assistant, based on the author's specifications. 
+The author defined the requirements and design, and tested and validated the program's output against independent calculations. 
+The program draws figures directly from the input data; it does not use AI to create or modify them.
