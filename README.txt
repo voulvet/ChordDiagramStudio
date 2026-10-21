@@ -6,6 +6,7 @@ FIRST TIME ONLY
   open Terminal and run (adjust the path if you moved the folder):
 
       xattr -cr ~/Downloads/ChordDiagramStudio
+      chmod +x ~/Downloads/ChordDiagramStudio
 
   Then double-click "Chord Diagram Studio.app".
   (Optional: drag the app into your Applications folder.)
