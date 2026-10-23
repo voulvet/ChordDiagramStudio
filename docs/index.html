@@ -80,6 +80,10 @@ summary{cursor:pointer;color:var(--accent);font-size:13px}
 #status{position:fixed;bottom:16px;right:16px;background:#1d2330;color:#fff;padding:8px 14px;border-radius:8px;font-size:13px;display:none;z-index:15}
 footer{padding:6px 22px 26px;color:var(--muted);font-size:12px;max-width:1100px}
 footer a{color:var(--accent)}
+.cite{background:#eef3fc;border:1px solid #d5e1f5;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.cite p{margin:0}
+.cite .ref{margin-top:3px;color:#334}
+.cite button{flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -148,6 +152,7 @@ footer a{color:var(--accent)}
 </section>
 
 <section id="results">
+  <div class="cite" id="citeTop"></div>
   <div class="empty" id="placeholder">Load an Excel file, choose your settings and press <b>Generate</b>.</div>
 </section>
 </main>
@@ -155,12 +160,20 @@ footer a{color:var(--accent)}
 <div id="status"></div>
 <div id="boot"><div class="spin"></div><div id="bootMsg">Loading Chord Diagram Studio…</div></div>
 <footer>
+  <p id="citeFoot"></p>
   <p><b>Privacy:</b> files are processed locally in your browser with WebAssembly; nothing is uploaded. A desktop version for Mac, Windows and Linux is available from the <a href="https://github.com/YOUR-USERNAME/YOUR-REPOSITORY/releases" id="relLink">project's GitHub releases</a>.</p>
   <p><b>AI disclosure:</b> The source code of Chord Diagram Studio was generated with Claude (Anthropic), an AI assistant, based on the author's specifications. The author defined the requirements and design, and tested and validated the program's output against independent calculations. The program draws figures directly from the input data; it does not use AI to create or modify them.</p>
 </footer>
 <script src="wasm_exec.js"></script>
 
 <script>
+// ===== Citation: after Zenodo gives you the DOI, change only the next two lines =====
+const CITE_DOI='10.5281/zenodo.23602942';
+const CITE_VERSION='1.0.1';
+// ====================================================================================
+const CITE_TEXT=`Carretero-Hernandez M. Chord Diagram Studio (version ${CITE_VERSION}) [Software]. Zenodo. https://doi.org/${CITE_DOI}`;
+function citeBox(){return `<div><p><b>Using these diagrams in a publication or presentation? Please cite Chord Diagram Studio:</b></p><p class="ref">${CITE_TEXT.replace(/(https:\/\/doi\.org\/\S+)/,'<a href="$1" target="_blank" rel="noopener">$1</a>')}</p></div><button class="small" data-copycite>Copy citation</button>`}
+function wireCite(root){root.querySelectorAll('[data-copycite]').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(CITE_TEXT);b.textContent='Copied ✓';setTimeout(()=>b.textContent='Copy citation',1500)}catch(e){prompt('Copy the citation:',CITE_TEXT)}})}
 const PASTEL=["#FFD59E","#B5EAD7","#C7B8EA","#FFB7C5","#A2D2FF","#FFF1A8","#D4F0B0","#F9C6E0","#FFC4A8","#A8E6E2","#E2C6F5","#C9D9A6","#B8C7F0","#F5D0A9","#D6E8F5","#EEC9C9"];
 const $=id=>document.getElementById(id);
 let state={cats:[],order:[],included:{},series:{}};let loaded=false;
@@ -322,7 +335,7 @@ $('go').onclick=async()=>{
 
 function renderResults(j){
   const R=$('results');const n=j.diagrams.length;
-  current=j;let h=`<div class="bar"><h2>${n>1?n+' diagrams':'Result'}</h2><span class="dl"><a href="#" data-all="1">Download all (zip)</a></span></div>`;
+  current=j;let h=`<div class="cite">${citeBox()}</div><div class="bar"><h2>${n>1?n+' diagrams':'Result'}</h2><span class="dl"><a href="#" data-all="1">Download all (zip)</a></span></div>`;
   if(n>1){
     h+='<div class="panel"><h2>Series overview</h2><table class="t"><tr><th>Diagram</th><th>Total</th><th>+</th><th>−</th>'+
       j.diagrams[0].counts.bands.map(b=>`<th>${esc(b.label.split(' (')[0])} +</th><th>${esc(b.label.split(' (')[0])} −</th>`).join('')+'</tr>';
@@ -342,6 +355,7 @@ function renderResults(j){
       </div></div></div>`;
   });
   R.innerHTML=h;
+  wireCite(R);
   R.scrollIntoView({behavior:'smooth',block:'start'});
   R.querySelectorAll('img[data-big]').forEach(im=>im.onclick=()=>{$('big').src=im.dataset.big;$('overlay').style.display='flex'});
   R.querySelectorAll('[data-dl]').forEach(a=>a.onclick=e=>{e.preventDefault();download(+a.dataset.dl,a.dataset.k)});
@@ -349,6 +363,8 @@ function renderResults(j){
 }
 $('overlay').onclick=()=>{$('overlay').style.display='none'};
 window.chordReady=()=>{$('boot').style.display='none'};
+$('citeTop').innerHTML=citeBox();wireCite($('citeTop'));
+$('citeFoot').innerHTML='<b>How to cite:</b> '+esc(CITE_TEXT);
 (async()=>{try{const go=new Go();let r;
   if(WebAssembly.instantiateStreaming){try{r=await WebAssembly.instantiateStreaming(fetch('chordstudio.wasm'),go.importObject)}catch(e){r=null}}
   if(!r){const b=await (await fetch('chordstudio.wasm')).arrayBuffer();r=await WebAssembly.instantiate(b,go.importObject)}
