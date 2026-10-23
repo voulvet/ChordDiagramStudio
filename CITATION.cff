@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "Chord Diagram Studio"
+abstract: >-
+  Chord Diagram Studio turns Spearman correlation and p-value matrices from
+  Excel into publication-ready chord diagrams. It shows only significant
+  correlations between variable categories, and lets you exclude, combine or
+  keep apart categories, build a series of diagrams, and count correlations by
+  sign and strength. Available as a browser application and as desktop
+  programs for Mac, Windows and Linux.
+authors:
+  - family-names: "Carretero-Hernandez"
+    given-names: "Marta"
+    # affiliation: "Your institution"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+version: "1.0.1"
+date-released: "2026-10-23"
+repository-code: "https://github.com/YOUR-USERNAME/YOUR-REPOSITORY"
+url: "https://YOUR-USERNAME.github.io/YOUR-REPOSITORY/"
+# license: MIT
+keywords:
+  - chord diagram
+  - correlation
+  - Spearman
+  - data visualization
+  - osteoarthritis
