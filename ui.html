@@ -72,6 +72,14 @@ summary{cursor:pointer;color:var(--accent);font-size:13px}
 .overlay{position:fixed;inset:0;background:rgba(20,24,33,.8);display:none;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}
 .overlay img{max-width:95vw;max-height:95vh;background:#fff;border-radius:6px}
 .busy{opacity:.55;pointer-events:none}
+.radio{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.radio label{display:flex;gap:7px;align-items:flex-start;margin:0;font-size:13px}
+.radio input{margin-top:3px}
+.detect{background:#f6f8fb;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:10px;font-size:12px;color:#344}
+.detect b{color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.chip{background:#fff;border:1px solid var(--line);border-radius:12px;padding:1px 8px;font-size:12px}
+.cnt{color:var(--muted);font-size:12px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -82,19 +90,44 @@ summary{cursor:pointer;color:var(--accent);font-size:13px}
 <main>
 <section id="settings">
   <div class="panel">
-    <h2>1 · Data</h2>
-    <label>Excel file (sheet 1: Spearman r, sheet 2: p-values; row 1 and column A = category names)</label>
+    <h2>Data</h2>
+    <label>Excel file (sheet 1: Spearman r, sheet 2: p-values)</label>
     <input type="file" id="file" accept=".xlsx,.xlsm">
     <div class="row">
       <div><label>r sheet</label><select id="rsheet"></select></div>
       <div><label>p-value sheet</label><select id="psheet"></select></div>
     </div>
+    <label>Row 1 and column A contain</label>
+    <div class="radio">
+      <label><input type="radio" name="header" value="category" checked><span><b>Category names</b> (e.g. Macroscopy, MicroCT)</span></label>
+      <label><input type="radio" name="header" value="variable"><span><b>Variable names</b> (e.g. MicroCT_SCBP BMD (AE))</span></label>
+    </div>
+    <div id="varOpts" style="display:none">
+      <div class="row" style="margin-top:6px">
+        <div><label>Category = text before</label><input type="text" id="sep" value="_" style="width:70px"></div>
+      </div>
+      <label class="row" style="gap:6px" id="sheetOpt"><input type="checkbox" id="useSheet" style="width:auto"> Use categories and regions from the "Variables" sheet</label>
+      <div class="detect" id="detect"></div>
+    </div>
     <label>Significance: keep correlations with p ≤</label>
     <input type="number" id="alpha" value="0.05" step="0.01" min="0" max="1">
   </div>
 
+  <div class="panel" id="groupPanel" style="display:none">
+    <h2>Regions</h2>
+    <div class="hint" style="margin-top:0">Found from the code in brackets at the end of a variable name, e.g. "(AE)", or after the last separator, e.g. "_AE".</div>
+    <label>Name of this grouping</label>
+    <input type="text" id="groupLabel" value="Region">
+    <label>Variables without a region</label>
+    <div class="radio">
+      <label><input type="radio" name="ungrouped" value="include" checked><span>Include in every region (e.g. whole-joint scores)</span></label>
+      <label><input type="radio" name="ungrouped" value="exclude"><span>Leave out</span></label>
+    </div>
+    <div class="hint" id="ungroupedList"></div>
+  </div>
+
   <div class="panel">
-    <h2>2 · Combine and keep apart</h2>
+    <h2>Combine and keep apart</h2>
     <label>Combine categories (every category containing the keyword becomes one category)</label>
     <div id="merges"></div>
     <button class="small" id="addMerge">+ Add combine rule</button>
@@ -104,29 +137,37 @@ summary{cursor:pointer;color:var(--accent);font-size:13px}
   </div>
 
   <div class="panel">
-    <h2>3 · Categories</h2>
+    <h2>Categories</h2>
     <div class="hint" style="margin-top:0">Untick to exclude. Arrows set the order around the ring. Colours stay fixed per category.</div>
     <table class="cats" id="cats"><tr><td class="empty">Load a file to see its categories.</td></tr></table>
   </div>
 
   <div class="panel">
-    <h2>4 · Diagrams</h2>
+    <h2>Diagrams</h2>
     <div class="seg">
       <label><input type="radio" name="mode" value="single" checked><span>One diagram</span></label>
-      <label><input type="radio" name="mode" value="series"><span>Series (one per category)</span></label>
+      <label><input type="radio" name="mode" value="series"><span>One per category</span></label>
+      <label id="modeGroups" style="display:none"><input type="radio" name="mode" value="groups"><span id="modeGroupsTxt">One per region</span></label>
+    </div>
+    <div id="singleOpts" style="display:none">
+      <label class="row" style="gap:6px;margin-top:8px"><input type="checkbox" id="withinGroup" style="width:auto"> <span id="withinTxt">Only correlations within the same region</span></label>
     </div>
     <div id="seriesOpts" style="display:none">
       <div class="hint">Tick the categories in the "Series" column. Each diagram shows only the correlations of that category.</div>
       <label class="row" style="gap:6px;margin-top:8px"><input type="checkbox" id="seriesApart" checked style="width:auto"> Leave the other series categories out of each diagram</label>
     </div>
-    <label>Title <span class="hint">({category} is replaced by the category name in a series)</span></label>
-    <input type="text" id="title" placeholder="Significant correlations between variable categories">
+    <div id="groupOpts" style="display:none">
+      <div class="hint" id="groupHint">One diagram per region, showing only correlations between variables of that region.</div>
+      <table class="cats" id="groups"></table>
+    </div>
+    <label>Title <span class="hint">({category} or {group} is replaced in a series)</span></label>
+    <input type="text" id="title" placeholder="(automatic)">
     <label>File name prefix</label>
     <input type="text" id="prefix" placeholder="(from the Excel file name)">
   </div>
 
   <div class="panel">
-    <h2>5 · Strength categories (|r|, positive or negative)</h2>
+    <h2>Strength categories (|r|, positive or negative)</h2>
     <div class="row">
       <div><label>Very strong ≥</label><input type="number" id="cutVS" value="0.8" step="0.05"></div>
       <div><label>Strong ≥</label><input type="number" id="cutS" value="0.6" step="0.05"></div>
@@ -148,11 +189,15 @@ summary{cursor:pointer;color:var(--accent);font-size:13px}
 <script>
 const PASTEL=["#FFD59E","#B5EAD7","#C7B8EA","#FFB7C5","#A2D2FF","#FFF1A8","#D4F0B0","#F9C6E0","#FFC4A8","#A8E6E2","#E2C6F5","#C9D9A6","#B8C7F0","#F5D0A9","#D6E8F5","#EEC9C9"];
 const $=id=>document.getElementById(id);
-let state={cats:[],order:[],included:{},series:{}};let loaded=false;
+let state={order:[],included:{},series:{},counts:{},groups:[],groupOn:{}};let loaded=false;let info=null;
 
 function showErr(m){const e=$('err');e.textContent=m||'';e.style.display=m?'block':'none'}
 async function api(url,opts){const r=await fetch(url,opts);const j=await r.json();if(!r.ok)throw new Error(j.error||'Error');return j}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+const radio=n=>document.querySelector(`input[name=${n}]:checked`).value;
+const setRadio=(n,v)=>{const r=document.querySelector(`input[name=${n}][value="${v}"]`);if(r)r.checked=true};
+const varMode=()=>radio('header')==='variable';
+const gLabel=()=>($('groupLabel').value.trim()||'Region');
 
 function fillSheets(info){
   for(const id of ['rsheet','psheet']){
@@ -169,9 +214,15 @@ async function load(withFile){
   if(withFile){fd.append('file',$('file').files[0])}
   else{fd.append('rsheet',$('rsheet').value);fd.append('psheet',$('psheet').value)}
   try{
-    const info=await api('/api/load',{method:'POST',body:fd});
+    info=await api('/api/load',{method:'POST',body:fd});
     fillSheets(info);loaded=true;
-    if(withFile){state.order=[];state.included={};state.series={}}
+    if(withFile){
+      state={order:[],included:{},series:{},counts:{},groups:[],groupOn:{}};
+      setRadio('header',info.looksVariables?'variable':'category');
+      $('useSheet').checked=!!info.hasVarSheet;
+    }
+    $('sheetOpt').style.display=info.hasVarSheet?'flex':'none';
+    updateModeUI();
     await refreshCats();
     $('go').disabled=false;
     if(withFile && !$('prefix').value){$('prefix').placeholder=info.file.replace(/\.xls[xm]$/i,'')+'_chord'}
@@ -193,28 +244,70 @@ function addMerge(k='',n=''){
 }
 $('addMerge').onclick=()=>addMerge();
 
+function baseOptions(){
+  return {merge:merges(),header:radio('header'),sep:$('sep').value||'_',useSheet:$('useSheet').checked&&!!(info&&info.hasVarSheet),ungrouped:radio('ungrouped')};
+}
+
 async function refreshCats(){
   if(!loaded)return;
   try{
-    const j=await api('/api/categories',{method:'POST',body:JSON.stringify({merge:merges()})});
-    const cats=j.categories;
-    // keep user order for known categories, append new ones
+    const j=await api('/api/categories',{method:'POST',body:JSON.stringify(baseOptions())});
+    const cats=j.categories;const d=j.describe;
     const kept=state.order.filter(c=>cats.includes(c));
     cats.forEach(c=>{if(!kept.includes(c))kept.push(c)});
     state.order=kept;
+    state.counts={};(d.categories||[]).forEach(x=>state.counts[x.name]=x.count);
     cats.forEach(c=>{if(!(c in state.included))state.included[c]=true;if(!(c in state.series))state.series[c]=false});
-    renderCats();
+    state.groups=d.groups||[];
+    state.groups.forEach(g=>{if(!(g.name in state.groupOn))state.groupOn[g.name]=true});
+    renderDetect(d);
+    updateModeUI();
+    renderCats();renderGroups();
   }catch(e){showErr(e.message)}
 }
 
-function seriesMode(){return document.querySelector('input[name=mode]:checked').value==='series'}
+function renderDetect(d){
+  if(!varMode()){$('detect').innerHTML='';return}
+  const g=d.groups||[];
+  let h=`<b>${d.variables}</b> variables · <b>${(d.categories||[]).length}</b> categories`;
+  if(g.length)h+=` · <b>${g.length}</b> ${esc(gLabel().toLowerCase())}s`;
+  if(g.length)h+=`<div class="chips">${g.map(x=>`<span class="chip">${esc(x.name)} <span class="cnt">${x.count}</span></span>`).join('')}</div>`;
+  if(d.ungrouped)h+=`<div style="margin-top:5px">${d.ungrouped} variable(s) without a ${esc(gLabel().toLowerCase())}</div>`;
+  $('detect').innerHTML=h;
+  $('ungroupedList').textContent=d.ungrouped?('Without a '+gLabel().toLowerCase()+': '+d.ungroupedExamples.join(', ')+(d.ungrouped>d.ungroupedExamples.length?', …':'')):'No variables without a '+gLabel().toLowerCase()+'.';
+}
+
+function updateModeUI(){
+  const vm=varMode();const hasG=vm&&state.groups.length>0;
+  $('varOpts').style.display=vm?'block':'none';
+  $('groupPanel').style.display=hasG?'block':'none';
+  $('modeGroups').style.display=hasG?'':'none';
+  if(!hasG&&radio('mode')==='groups')setRadio('mode','single');
+  const m=radio('mode');
+  $('seriesOpts').style.display=m==='series'?'block':'none';
+  $('groupOpts').style.display=m==='groups'?'block':'none';
+  $('singleOpts').style.display=(m==='single'&&hasG)?'block':'none';
+  const L=gLabel();
+  $('modeGroupsTxt').textContent='One per '+L.toLowerCase();
+  $('withinTxt').textContent='Only correlations within the same '+L.toLowerCase();
+  $('groupHint').textContent='One diagram per '+L.toLowerCase()+', showing only correlations between variables of that '+L.toLowerCase()+'.';
+}
+document.querySelectorAll('input[name=header]').forEach(r=>r.onchange=()=>{state.order=[];refreshCats()});
+$('sep').onchange=refreshCats;$('useSheet').onchange=refreshCats;
+document.querySelectorAll('input[name=ungrouped]').forEach(r=>r.onchange=refreshCats);
+$('groupLabel').oninput=()=>{updateModeUI();renderGroups()};
+
+function seriesMode(){return radio('mode')==='series'}
 
 function renderCats(){
   const t=$('cats');const sm=seriesMode();
   let h=`<tr><th class="ord">Order</th><th>Category</th><th class="c">Include</th>${sm?'<th class="c">Series</th>':''}</tr>`;
+  let ci=0;
   state.order.forEach((c,i)=>{
+    const n=varMode()&&state.counts[c]?`<span class="cnt">${state.counts[c]}</span>`:'';
+    const col=state.included[c]?PASTEL[(ci++)%PASTEL.length]:'#e3e6eb';
     h+=`<tr><td class="ord"><button class="small" data-up="${i}" ${i==0?'disabled':''}>↑</button><button class="small" data-dn="${i}" ${i==state.order.length-1?'disabled':''}>↓</button></td>
-      <td><span class="swatch" style="background:${PASTEL[i%PASTEL.length]}"></span>${esc(c)}</td>
+      <td><span class="swatch" style="background:${col}"></span>${esc(c)}${n}</td>
       <td class="c"><input type="checkbox" data-inc="${esc(c)}" ${state.included[c]?'checked':''}></td>
       ${sm?`<td class="c"><input type="checkbox" data-ser="${esc(c)}" ${state.series[c]?'checked':''} ${state.included[c]?'':'disabled'}></td>`:''}</tr>`;
   });
@@ -227,7 +320,14 @@ function renderCats(){
   const sa=$('serAll');if(sa)sa.onclick=()=>{const kw=$('apart').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
     state.order.forEach(c=>{if(state.included[c])state.series[c]=kw.length?kw.some(k=>c.toLowerCase().includes(k)):true});renderCats()};
 }
-document.querySelectorAll('input[name=mode]').forEach(r=>r.onchange=()=>{$('seriesOpts').style.display=seriesMode()?'block':'none';renderCats()});
+function renderGroups(){
+  const t=$('groups');const L=gLabel();
+  let h=`<tr><th>${esc(L)}</th><th class="c">Variables</th><th class="c">Diagram</th></tr>`;
+  state.groups.forEach(g=>{h+=`<tr><td>${esc(g.name)}</td><td class="c">${g.count}</td><td class="c"><input type="checkbox" data-grp="${esc(g.name)}" ${state.groupOn[g.name]?'checked':''}></td></tr>`});
+  t.innerHTML=h;
+  t.querySelectorAll('[data-grp]').forEach(b=>b.onchange=()=>{state.groupOn[b.dataset.grp]=b.checked});
+}
+document.querySelectorAll('input[name=mode]').forEach(r=>r.onchange=()=>{updateModeUI();renderCats()});
 
 function bandsTable(c){
   let h='<table class="t"><tr><th>Strength</th><th>Total</th><th>Positive</th><th>Negative</th></tr>';
@@ -247,6 +347,7 @@ function removedLine(r){
   if(r.apart)parts.push(`${r.apart} between kept-apart categories`);
   if(r.excluded)parts.push(`${r.excluded} with excluded categories`);
   if(r.outOfFocus)parts.push(`${r.outOfFocus} not involving this category`);
+  if(r.otherGroup)parts.push(`${r.otherGroup} outside this ${gLabel().toLowerCase()} or across ${gLabel().toLowerCase()}s`);
   if(r.notSignificant)parts.push(`${r.notSignificant} not significant`);
   if(r.missingP)parts.push(`${r.missingP} without p-value`);
   return 'Removed from '+parts[0]+': '+(parts.slice(1).join(', ')||'none')+'.';
@@ -254,20 +355,23 @@ function removedLine(r){
 
 $('go').onclick=async()=>{
   showErr('');
+  const mode=radio('mode');
   const req={
-    mode:seriesMode()?'series':'single',
+    mode,
     series:state.order.filter(c=>state.series[c]&&state.included[c]),
+    groups:state.groups.map(g=>g.name).filter(g=>state.groupOn[g]),
+    groupLabel:gLabel(),
     seriesExcludeOthers:$('seriesApart').checked,
     prefix:$('prefix').value.trim(),
-    options:{
+    options:Object.assign(baseOptions(),{
       alpha:parseFloat($('alpha').value)||0.05,
       exclude:state.order.filter(c=>!state.included[c]),
-      merge:merges(),
       apart:$('apart').value.split(',').map(s=>s.trim()).filter(Boolean),
       order:state.order,
       title:$('title').value.trim(),
+      withinGroup:mode==='single'&&varMode()&&state.groups.length>0&&$('withinGroup').checked,
       cuts:{veryStrong:+$('cutVS').value,strong:+$('cutS').value,moderate:+$('cutM').value}
-    }
+    })
   };
   const btn=$('go');btn.disabled=true;btn.textContent='Generating…';$('results').classList.add('busy');
   try{
@@ -279,12 +383,12 @@ $('go').onclick=async()=>{
 
 function renderResults(j){
   const R=$('results');const n=j.diagrams.length;
-  let h=`<div class="bar"><h2>${n>1?n+' diagrams':'Result'}</h2><span class="dl"><a href="/api/zip?job=${j.job}">Download all (zip)</a></span></div>`;
+  current=j;let h=`<div class="bar"><h2>${n>1?n+' diagrams':'Result'}</h2><span class="dl">${j.hasSummary?`<a href="/api/file?job=${j.job}&kind=summary">Summary (xlsx)</a>`:''}<a href="/api/zip?job=${j.job}">Download all (zip)</a></span></div>`;
   if(n>1){
-    h+='<div class="panel"><h2>Series overview</h2><table class="t"><tr><th>Diagram</th><th>Total</th><th>+</th><th>−</th>'+
+    h+='<div class="panel"><h2>Overview</h2><div class="scroll" style="max-height:none;border:0"><table class="t"><tr><th>Diagram</th><th>Total</th><th>+</th><th>−</th>'+
       j.diagrams[0].counts.bands.map(b=>`<th>${esc(b.label.split(' (')[0])} +</th><th>${esc(b.label.split(' (')[0])} −</th>`).join('')+'</tr>';
     j.diagrams.forEach(d=>{const c=d.counts;h+=`<tr><td>${esc(d.name)}</td><td>${c.total}</td><td class="p">${c.pos}</td><td class="n">${c.neg}</td>${c.bands.map(b=>`<td class="p">${b.pos}</td><td class="n">${b.neg}</td>`).join('')}</tr>`});
-    h+='</table></div>';
+    h+='</table></div></div>';
   }
   j.diagrams.forEach((d,i)=>{
     const c=d.counts;const base=`/api/file?job=${j.job}&i=${i}`;
@@ -302,6 +406,7 @@ function renderResults(j){
   R.scrollIntoView({behavior:'smooth',block:'start'});
   R.querySelectorAll('img[data-big]').forEach(im=>im.onclick=()=>{$('big').src=im.dataset.big;$('overlay').style.display='flex'});
 }
+let current=null;
 $('overlay').onclick=()=>{$('overlay').style.display='none'};
 $('quit').onclick=async()=>{try{await fetch('/api/quit',{method:'POST'})}catch(e){} document.body.innerHTML='<div class="empty">Chord Diagram Studio has stopped. You can close this tab.</div>'};
 </script>

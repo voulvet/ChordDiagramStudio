@@ -15,6 +15,8 @@ var (
 	wData     []byte
 	wDS       *Dataset
 	wDiags    []*Diagram
+	wSummary  []byte
+	wPrefix   string
 )
 
 func jsonResult(v any) js.Value {
@@ -50,6 +52,7 @@ func load(_ js.Value, a []js.Value) any {
 	return jsonResult(map[string]any{
 		"file": wFileName, "sheets": ds.Sheets, "rsheet": ds.RSheet, "psheet": ds.PSheet,
 		"categories": ds.Categories, "symmetric": ds.Symmetric,
+		"looksVariables": ds.LooksVariables, "hasVarSheet": ds.HasVarSheet,
 	})
 }
 
@@ -60,7 +63,7 @@ func categories(_ js.Value, a []js.Value) any {
 	}
 	var o Options
 	json.Unmarshal([]byte(a[0].String()), &o)
-	return jsonResult(map[string]any{"categories": wDS.MergedCategories(&o)})
+	return jsonResult(map[string]any{"categories": wDS.MergedCategories(&o), "describe": wDS.Describe(&o)})
 }
 
 // chordGenerate(requestJSON) -> JSON {diagrams}; only SVGs are rendered here.
@@ -77,11 +80,22 @@ func generate(_ js.Value, a []js.Value) any {
 		return errResult(err.Error())
 	}
 	wDiags = d
-	return jsonResult(map[string]any{"job": "web", "diagrams": d, "prefix": ResolvePrefix(req, wFileName)})
+	wPrefix = ResolvePrefix(req, wFileName)
+	wSummary = nil
+	if len(d) > 1 {
+		wSummary = SummaryXLSX(d, req.Options.Cuts)
+	}
+	return jsonResult(map[string]any{"job": "web", "diagrams": d, "prefix": wPrefix, "hasSummary": len(d) > 1})
 }
 
 // chordFile(index, kind) -> Uint8Array ("png" renders on demand)
 func file(_ js.Value, a []js.Value) any {
+	if a[1].String() == "summary" {
+		if wSummary == nil {
+			return js.Null()
+		}
+		return toBytes(wSummary)
+	}
 	i := a[0].Int()
 	if i < 0 || i >= len(wDiags) {
 		return js.Null()
@@ -109,7 +123,7 @@ func zipAll(_ js.Value, _ []js.Value) any {
 	for _, d := range wDiags {
 		d.EnsurePNG()
 	}
-	return toBytes(ZipDiagrams(wDiags))
+	return toBytes(ZipDiagrams(wDiags, wSummary, wPrefix+"_summary.xlsx"))
 }
 
 func main() {

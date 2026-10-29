@@ -2,6 +2,7 @@
 # Builds the website (docs/) and the desktop programs (dist/). Requires Go 1.24+.
 set -e
 export CGO_ENABLED=0
+python3 tools/mkweb.py ui.html docs/index.html
 GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o docs/chordstudio.wasm .
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" docs/
 mkdir -p dist

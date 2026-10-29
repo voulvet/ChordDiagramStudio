@@ -27,6 +27,8 @@ type server struct {
 	data     []byte
 	ds       *Dataset
 	jobs     map[string][]*Diagram
+	summary  map[string][]byte
+	prefix   map[string]string
 	jobN     int
 }
 
@@ -45,6 +47,7 @@ func (s *server) info() map[string]any {
 	return map[string]any{
 		"file": s.fileName, "sheets": s.ds.Sheets, "rsheet": s.ds.RSheet, "psheet": s.ds.PSheet,
 		"categories": s.ds.Categories, "symmetric": s.ds.Symmetric,
+		"looksVariables": s.ds.LooksVariables, "hasVarSheet": s.ds.HasVarSheet,
 	}
 }
 
@@ -80,7 +83,7 @@ func (s *server) handleCategories(w http.ResponseWriter, r *http.Request) {
 	}
 	var o Options
 	json.NewDecoder(r.Body).Decode(&o)
-	writeJSON(w, map[string]any{"categories": s.ds.MergedCategories(&o)})
+	writeJSON(w, map[string]any{"categories": s.ds.MergedCategories(&o), "describe": s.ds.Describe(&o)})
 }
 
 func (s *server) handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +106,11 @@ func (s *server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	s.jobN++
 	job := strconv.Itoa(s.jobN)
 	s.jobs[job] = diags
-	writeJSON(w, map[string]any{"job": job, "diagrams": diags})
+	s.prefix[job] = ResolvePrefix(req, s.fileName)
+	if len(diags) > 1 {
+		s.summary[job] = SummaryXLSX(diags, req.Options.Cuts)
+	}
+	writeJSON(w, map[string]any{"job": job, "diagrams": diags, "prefix": s.prefix[job], "hasSummary": len(diags) > 1})
 }
 
 func (s *server) get(job, i string) *Diagram {
@@ -118,6 +125,19 @@ func (s *server) get(job, i string) *Diagram {
 }
 
 func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
+	if r.FormValue("kind") == "summary" {
+		s.mu.Lock()
+		b, p := s.summary[r.FormValue("job")], s.prefix[r.FormValue("job")]
+		s.mu.Unlock()
+		if b == nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s_summary.xlsx"`, p))
+		w.Write(b)
+		return
+	}
 	d := s.get(r.FormValue("job"), r.FormValue("i"))
 	if d == nil {
 		http.NotFound(w, r)
@@ -148,15 +168,16 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleZip(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	diags := s.jobs[r.FormValue("job")]
+	sum, pre := s.summary[r.FormValue("job")], s.prefix[r.FormValue("job")]
 	s.mu.Unlock()
 	if diags == nil {
 		http.NotFound(w, r)
 		return
 	}
-	data := ZipDiagrams(diags)
-	name := "chord_diagrams.zip"
-	if len(diags) > 0 {
-		name = diags[0].File + "_all.zip"
+	data := ZipDiagrams(diags, sum, pre+"_summary.xlsx")
+	name := pre + "_all.zip"
+	if len(diags) > 1 {
+		name = pre + "_series_all.zip"
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
@@ -177,7 +198,7 @@ func openBrowser(url string) {
 }
 
 func runServer(port int, noBrowser bool) {
-	s := &server{jobs: map[string][]*Diagram{}}
+	s := &server{jobs: map[string][]*Diagram{}, summary: map[string][]byte{}, prefix: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

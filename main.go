@@ -39,6 +39,13 @@ func main() {
 	series := flag.String("series", "", "CLI: comma-separated categories; one diagram per category")
 	title := flag.String("title", "", "CLI: figure title ({category} is replaced in series)")
 	out := flag.String("out", "", "CLI: output prefix")
+	variables := flag.Bool("variables", false, "CLI: row 1/column A contain variable names (category = text before -sep)")
+	sep := flag.String("sep", "_", "CLI: separator between category and the rest of a variable name")
+	useSheet := flag.Bool("usesheet", false, "CLI: take categories/regions from the 'Variables' sheet")
+	byGroup := flag.String("bygroup", "", "CLI: one diagram per region/group: comma-separated codes, or 'all'")
+	groupLabel := flag.String("grouplabel", "Region", "CLI: name of the grouping, e.g. Region")
+	ungrouped := flag.String("ungrouped", "include", "CLI: variables without a region: include (in every diagram) or exclude")
+	withinGroup := flag.Bool("withingroup", false, "CLI: single diagram with only correlations within the same region")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -59,7 +66,10 @@ func main() {
 		os.Exit(1)
 	}
 	o := Options{Alpha: *alpha, Exclude: splitList(*exclude), Order: splitList(*order), Apart: splitList(*apart),
-		Title: *title, Cuts: Cuts{0.8, 0.6, 0.4}}
+		Title: *title, Cuts: Cuts{0.8, 0.6, 0.4}, Sep: *sep, UseSheet: *useSheet, Ungrouped: *ungrouped, WithinGroup: *withinGroup}
+	if *variables || *useSheet || *byGroup != "" || *withinGroup {
+		o.Header = "variable"
+	}
 	for _, m := range splitList(*merge) {
 		kv := strings.SplitN(m, "=", 2)
 		r := MergeRule{Keyword: kv[0]}
@@ -72,51 +82,41 @@ func main() {
 	if prefix == "" {
 		prefix = strings.TrimSuffix(in, filepath.Ext(in)) + "_chord"
 	}
-	_, full, _ := ds.Compute(&o)
-	run := func(name, file, t string, opt Options) {
-		links, ord, rm := ds.Compute(&opt)
-		cn := CountLinks(links, ord, opt.Cuts, rm)
-		fmt.Printf("%s: %d correlations (%d positive, %d negative)\n", name, cn.Total, cn.Pos, cn.Neg)
+	dir, base := filepath.Split(prefix)
+	req := GenerateReq{Options: o, Mode: "single", Prefix: base, SeriesApart: true, GroupLabel: *groupLabel}
+	if *series != "" {
+		req.Mode, req.Series = "series", splitList(*series)
+	}
+	if *byGroup != "" {
+		req.Mode = "groups"
+		if strings.EqualFold(*byGroup, "all") {
+			for _, g := range ds.Describe(&o).Groups {
+				req.Groups = append(req.Groups, g.Name)
+			}
+		} else {
+			req.Groups = splitList(*byGroup)
+		}
+	}
+	diags, err := Generate(ds, req, filepath.Base(in), true)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	for _, d := range diags {
+		cn := d.Counts
+		fmt.Printf("%s: %d correlations (%d positive, %d negative)\n", d.Name, cn.Total, cn.Pos, cn.Neg)
 		for _, b := range cn.Bands {
 			fmt.Printf("   %-28s %5d  (+%d / −%d)\n", b.Label, b.Total, b.Pos, b.Neg)
 		}
-		if x, err := CountsXLSX(cn); err == nil {
-			os.WriteFile(file+"_counts.xlsx", x, 0644)
-		}
-		if len(links) == 0 {
+		os.WriteFile(filepath.Join(dir, d.File+"_counts.xlsx"), d.xlsx, 0644)
+		if d.Error != "" {
 			fmt.Println("   nothing to draw")
-			return
+			continue
 		}
-		png, svg, err := Render(links, ord, full, t, true)
-		if err != nil {
-			fmt.Println("  ", err)
-			return
-		}
-		os.WriteFile(file+".png", png, 0644)
-		os.WriteFile(file+".svg", svg, 0644)
+		os.WriteFile(filepath.Join(dir, d.File+".png"), d.png, 0644)
+		os.WriteFile(filepath.Join(dir, d.File+".svg"), d.svg, 0644)
 	}
-	if *series != "" {
-		cats := splitList(*series)
-		t := o.Title
-		if t == "" {
-			t = "{category}: significant correlations"
-		}
-		for _, c := range cats {
-			opt := o
-			opt.Focus = c
-			opt.Exclude = append([]string{}, o.Exclude...)
-			for _, x := range cats {
-				if x != c {
-					opt.Exclude = append(opt.Exclude, x)
-				}
-			}
-			run(c, prefix+"_"+fileSafe(c), strings.ReplaceAll(t, "{category}", c), opt)
-		}
-	} else {
-		t := o.Title
-		if t == "" {
-			t = "Significant correlations between variable categories"
-		}
-		run("All categories", prefix, t, o)
+	if len(diags) > 1 {
+		os.WriteFile(filepath.Join(dir, ResolvePrefix(req, in)+"_summary.xlsx"), SummaryXLSX(diags, o.Cuts), 0644)
 	}
 }

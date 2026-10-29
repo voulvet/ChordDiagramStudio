@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/xuri/excelize/v2"
 )
 
 type Diagram struct {
@@ -25,8 +28,10 @@ type Diagram struct {
 
 type GenerateReq struct {
 	Options     Options  `json:"options"`
-	Mode        string   `json:"mode"` // "single" or "series"
+	Mode        string   `json:"mode"` // "single", "series" (one per category) or "groups" (one per region/group)
 	Series      []string `json:"series"`
+	Groups      []string `json:"groups"`
+	GroupLabel  string   `json:"groupLabel"` // e.g. "Region"
 	SeriesApart bool     `json:"seriesExcludeOthers"`
 	Prefix      string   `json:"prefix"`
 }
@@ -65,7 +70,18 @@ func Generate(ds *Dataset, req GenerateReq, fileName string, raster bool) ([]*Di
 		o.Cuts = Cuts{0.8, 0.6, 0.4}
 	}
 	prefix := ResolvePrefix(req, fileName)
-	_, fullOrder, _ := ds.Compute(&o)
+	_, allOrder, _ := ds.Compute(&o)
+	// colours follow the ring order of the categories that are actually included
+	excl := map[string]bool{}
+	for _, e := range o.Exclude {
+		excl[clean(e)] = true
+	}
+	var fullOrder []string
+	for _, c := range allOrder {
+		if !excl[c] {
+			fullOrder = append(fullOrder, c)
+		}
+	}
 
 	var diags []*Diagram
 	make1 := func(name, file, title string, opt Options) {
@@ -81,10 +97,30 @@ func Generate(ds *Dataset, req GenerateReq, fileName string, raster bool) ([]*Di
 			}
 			d.png, d.svg = png, svg
 		}
-		d.xlsx, _ = CountsXLSX(d.Counts)
+		d.xlsx, _ = CountsXLSX(d.Counts, links, opt.Cuts)
 		diags = append(diags, d)
 	}
 	title := strings.TrimSpace(o.Title)
+	label := strings.TrimSpace(req.GroupLabel)
+	if label == "" {
+		label = "Group"
+	}
+	if req.Mode == "groups" {
+		if len(req.Groups) == 0 {
+			return nil, fmt.Errorf("Tick at least one %s for the diagrams.", strings.ToLower(label))
+		}
+		if title == "" {
+			title = label + " {group}: significant correlations between variable categories"
+		}
+		for _, g := range req.Groups {
+			opt := o
+			opt.Group = g
+			opt.WithinGroup = false
+			t := strings.ReplaceAll(strings.ReplaceAll(title, "{group}", g), "{category}", g)
+			make1(label+" "+g, prefix+"_"+fileSafe(label+"_"+g), t, opt)
+		}
+		return diags, nil
+	}
 	if req.Mode == "series" {
 		if len(req.Series) == 0 {
 			return nil, fmt.Errorf("Tick at least one category for the series.")
@@ -127,7 +163,81 @@ func (d *Diagram) EnsurePNG() error {
 	return nil
 }
 
-func ZipDiagrams(diags []*Diagram) []byte {
+// SummaryXLSX compares several diagrams (a series or one per group).
+func SummaryXLSX(diags []*Diagram, cuts Cuts) []byte {
+	if cuts.VeryStrong == 0 {
+		cuts = Cuts{0.8, 0.6, 0.4}
+	}
+	x := excelize.NewFile()
+	defer x.Close()
+	bold, _ := x.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
+	short := []string{"Very strong", "Strong", "Moderate", "Weak"}
+	sh := "Summary"
+	x.SetSheetName("Sheet1", sh)
+	h := []any{"Diagram", "Total", "Positive", "Negative"}
+	for _, b := range short {
+		h = append(h, b+" +", b+" −")
+	}
+	x.SetSheetRow(sh, "A1", &h)
+	for i, d := range diags {
+		c := d.Counts
+		row := []any{d.Name, c.Total, c.Pos, c.Neg}
+		for _, b := range c.Bands {
+			row = append(row, b.Pos, b.Neg)
+		}
+		x.SetSheetRow(sh, fmt.Sprintf("A%d", i+2), &row)
+	}
+	x.SetRowStyle(sh, 1, 1, bold)
+	x.SetColWidth(sh, "A", "A", 30)
+	f := func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
+	n := len(diags) + 3
+	x.SetSheetRow(sh, fmt.Sprintf("A%d", n), &[]any{"Strength by |r|: very strong ≥ " + f(cuts.VeryStrong) + ", strong ≥ " + f(cuts.Strong) + ", moderate ≥ " + f(cuts.Moderate) + ", weak below."})
+
+	pair := "By category pair"
+	x.NewSheet(pair)
+	ph := append([]any{"Diagram", "Category 1", "Category 2"}, h[1:]...)
+	x.SetSheetRow(pair, "A1", &ph)
+	r := 2
+	for _, d := range diags {
+		for _, p := range d.Counts.Pairs {
+			row := []any{d.Name, p.A, p.B, p.Total, p.Pos, p.Neg}
+			for _, b := range p.Bands {
+				row = append(row, b.Pos, b.Neg)
+			}
+			x.SetSheetRow(pair, fmt.Sprintf("A%d", r), &row)
+			r++
+		}
+	}
+	x.SetRowStyle(pair, 1, 1, bold)
+	x.SetColWidth(pair, "A", "C", 26)
+
+	cat := "By category"
+	x.NewSheet(cat)
+	ch := append([]any{"Diagram", "Category"}, h[1:]...)
+	x.SetSheetRow(cat, "A1", &ch)
+	r = 2
+	for _, d := range diags {
+		for _, p := range d.Counts.PerCat {
+			row := []any{d.Name, p.A, p.Total, p.Pos, p.Neg}
+			for _, b := range p.Bands {
+				row = append(row, b.Pos, b.Neg)
+			}
+			x.SetSheetRow(cat, fmt.Sprintf("A%d", r), &row)
+			r++
+		}
+	}
+	x.SetRowStyle(cat, 1, 1, bold)
+	x.SetColWidth(cat, "A", "B", 26)
+
+	for _, d := range diags {
+		writeLinks(x, "All correlations", d.Name, d.links, cuts, bold)
+	}
+	var buf bytes.Buffer
+	x.Write(&buf)
+	return buf.Bytes()
+}
+
+func ZipDiagrams(diags []*Diagram, summary []byte, summaryName string) []byte {
 	var buf bytes.Buffer
 	z := zip.NewWriter(&buf)
 	add := func(name string, b []byte) {
@@ -140,6 +250,9 @@ func ZipDiagrams(diags []*Diagram) []byte {
 		add(d.File+".png", d.png)
 		add(d.File+".svg", d.svg)
 		add(d.File+"_counts.xlsx", d.xlsx)
+	}
+	if summary != nil {
+		add(summaryName, summary)
 	}
 	z.Close()
 	return buf.Bytes()

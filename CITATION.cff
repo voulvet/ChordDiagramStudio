@@ -12,16 +12,17 @@ abstract: >-
 authors:
   - family-names: "Carretero-Hernandez"
     given-names: "Marta"
-    affiliation: "Center of Experimental Orthopaedics, Homburg, Saarland University, Germany"
-    orcid: "https://orcid.org/0000-0003-0712-2804"
-version: "1.0.1"
-date-released: "2026-10-23"
-repository-code: "https://github.com/voulvet/ChordDiagramStudio"
-url: "https://voulvet.github.io/ChordDiagramStudio/"
-license: MIT
+    # affiliation: "Your institution"
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+version: "1.1.0"
+doi: "10.5281/zenodo.23602942"
+date-released: "2026-10-29"
+repository-code: "https://github.com/YOUR-USERNAME/YOUR-REPOSITORY"
+url: "https://YOUR-USERNAME.github.io/YOUR-REPOSITORY/"
+# license: MIT
 keywords:
   - chord diagram
   - correlation
-  - excel
+  - Spearman
   - data visualization
-  - medial research
+  - osteoarthritis

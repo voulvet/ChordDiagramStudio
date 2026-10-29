@@ -36,10 +36,19 @@ type Dataset struct {
 	Sheets         []string
 	RSheet, PSheet string
 	rRows, pRows   [][]string
-	rowCat, colCat []string
+	rowCat, colCat []string // header labels (category names or variable names)
 	Symmetric      bool
-	Categories     []string // in order of first appearance
-	Cells          int      // number of numeric r cells used
+	Categories     []string // header labels in order of first appearance
+	Labels         []string // unique header labels in order (variables in variable mode)
+	Vars           map[string]VarInfo
+	HasVarSheet    bool
+	LooksVariables bool // headers look like variable names (mostly unique)
+}
+
+// VarInfo comes from an optional "Variables" sheet (Variable, Category, Region/Group).
+type VarInfo struct {
+	Category string
+	Group    string
 }
 
 func parseNum(s string) (float64, bool) {
@@ -115,6 +124,44 @@ func LoadDataset(r io.Reader, rSheet, pSheet string) (*Dataset, error) {
 			ds.Categories = append(ds.Categories, c)
 		}
 	}
+	ds.Labels = ds.Categories
+	ds.LooksVariables = len(ds.colCat) > 2 && float64(len(ds.Labels)) >= 0.9*float64(len(ds.colCat))
+	ds.Vars = map[string]VarInfo{}
+	for _, sh := range ds.Sheets {
+		if !strings.EqualFold(strings.TrimSpace(sh), "variables") || sh == rSheet || sh == pSheet {
+			continue
+		}
+		rows, err := f.GetRows(sh)
+		if err != nil || len(rows) < 2 {
+			continue
+		}
+		vc, cc, gc := -1, -1, -1
+		for j, h := range rows[0] {
+			switch strings.ToLower(clean(h)) {
+			case "variable", "variables", "variable name", "name":
+				vc = j
+			case "category", "variable category":
+				cc = j
+			case "region", "group", "anatomical region", "location":
+				gc = j
+			}
+		}
+		if vc < 0 || cc < 0 {
+			continue
+		}
+		for _, r := range rows[1:] {
+			v := clean(cell([][]string{r}, 0, vc))
+			if v == "" {
+				continue
+			}
+			vi := VarInfo{Category: clean(cell([][]string{r}, 0, cc))}
+			if gc >= 0 {
+				vi.Group = clean(cell([][]string{r}, 0, gc))
+			}
+			ds.Vars[v] = vi
+		}
+		ds.HasVarSheet = len(ds.Vars) > 0
+	}
 	return ds, nil
 }
 
@@ -134,6 +181,14 @@ type Options struct {
 	Title   string      `json:"title"`
 	Focus   string      `json:"-"` // only links touching this category (series mode)
 	Cuts    Cuts        `json:"cuts"`
+
+	// Variable-name mode
+	Header      string `json:"header"`      // "category" (default): headers are categories; "variable": headers are variable names
+	Sep         string `json:"sep"`         // category = text before this separator (default "_")
+	UseSheet    bool   `json:"useSheet"`    // take category/group from the "Variables" sheet
+	Ungrouped   string `json:"ungrouped"`   // variables without group: "include" (default) or "exclude"
+	WithinGroup bool   `json:"withinGroup"` // only correlations between variables of the same group
+	Group       string `json:"-"`           // one-diagram-per-group: the current group
 }
 
 type Cuts struct {
@@ -145,6 +200,7 @@ type Cuts struct {
 type Link struct {
 	C1, C2 string
 	R, P   float64
+	V1, V2 string // variable labels (same order as C1, C2)
 }
 
 type Removed struct {
@@ -155,6 +211,7 @@ type Removed struct {
 	NotSig     int `json:"notSignificant"`
 	NoP        int `json:"missingP"`
 	OutOfFocus int `json:"outOfFocus"`
+	OtherGroup int `json:"otherGroup"`
 }
 
 func (o *Options) mapCat(c string) string {
@@ -175,7 +232,11 @@ func (o *Options) mapCat(c string) string {
 func (ds *Dataset) MergedCategories(o *Options) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, c := range ds.Categories {
+	for _, l := range ds.Labels {
+		c, _ := ds.varInfo(l, o)
+		if c == "" {
+			continue
+		}
 		m := o.mapCat(c)
 		if !seen[m] {
 			seen[m] = true
@@ -204,8 +265,9 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 		excl[clean(e)] = true
 	}
 	type raw struct {
-		a, b string
-		r, p float64
+		a, b   string
+		r, p   float64
+		va, vb string
 	}
 	var raws []raw
 	for i := 0; i < len(ds.rowCat); i++ {
@@ -227,7 +289,9 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 			if !ok {
 				continue
 			}
-			a0, b0 := ds.rowCat[i], ds.colCat[j]
+			va, vb := ds.rowCat[i], ds.colCat[j]
+			a0, ga := ds.varInfo(va, o)
+			b0, gb := ds.varInfo(vb, o)
 			if a0 == "" || b0 == "" {
 				continue
 			}
@@ -249,6 +313,10 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 				rm.OutOfFocus++
 				continue
 			}
+			if !o.groupOK(ga, gb) {
+				rm.OtherGroup++
+				continue
+			}
 			p, ok := parseNum(ps)
 			if !ok {
 				rm.NoP++
@@ -258,7 +326,7 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 				rm.NotSig++
 				continue
 			}
-			raws = append(raws, raw{a, b, r, p})
+			raws = append(raws, raw{a, b, r, p, va, vb})
 		}
 	}
 	// ring order: user order, then remaining categories in appearance order
@@ -282,11 +350,11 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 	}
 	links := make([]Link, 0, len(raws))
 	for _, x := range raws {
-		a, b := x.a, x.b
+		a, b, va, vb := x.a, x.b, x.va, x.vb
 		if idx[a] > idx[b] {
-			a, b = b, a
+			a, b, va, vb = b, a, vb, va
 		}
-		links = append(links, Link{a, b, x.r, x.p})
+		links = append(links, Link{C1: a, C2: b, R: x.r, P: x.p, V1: va, V2: vb})
 	}
 	return links, order, rm
 }
@@ -404,7 +472,7 @@ func CountLinks(links []Link, order []string, c Cuts, rm Removed) Counts {
 	return out
 }
 
-func CountsXLSX(cn Counts) ([]byte, error) {
+func CountsXLSX(cn Counts, links []Link, cuts Cuts) ([]byte, error) {
 	x := excelize.NewFile()
 	defer x.Close()
 	bold, _ := x.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
@@ -424,7 +492,7 @@ func CountsXLSX(cn Counts) ([]byte, error) {
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+3), &[]any{"Removed: within category", rm.Within})
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+4), &[]any{"Removed: excluded categories", rm.Excluded})
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+5), &[]any{"Removed: kept-apart categories", rm.Apart})
-	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+6), &[]any{"Removed: not in this diagram (series)", rm.OutOfFocus})
+	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+6), &[]any{"Removed: not in this diagram (series)", rm.OutOfFocus + rm.OtherGroup})
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+7), &[]any{"Removed: not significant", rm.NotSig})
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+8), &[]any{"Removed: missing p-value", rm.NoP})
 	x.SetColWidth(sh, "A", "A", 40)
@@ -456,6 +524,7 @@ func CountsXLSX(cn Counts) ([]byte, error) {
 	}
 	writePairs("Pairwise counts", cn.Pairs, false)
 	writePairs("Per category", cn.PerCat, true)
+	writeLinks(x, "All correlations", "", links, cuts, bold)
 	var buf bytes.Buffer
 	if err := x.Write(&buf); err != nil {
 		return nil, err
@@ -874,4 +943,48 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 		return nil, nil, err
 	}
 	return pngBuf.Bytes(), []byte(c.svg.String()), nil
+}
+
+func strengthName(r float64, c Cuts) string {
+	return []string{"Very strong", "Strong", "Moderate", "Weak"}[bandOf(r, c)]
+}
+
+// writeLinks lists every correlation drawn. With diag != "" a first column names the diagram.
+func writeLinks(x *excelize.File, sheet, diag string, links []Link, c Cuts, bold int) int {
+	idx, _ := x.GetSheetIndex(sheet)
+	row := 2
+	if idx < 0 {
+		x.NewSheet(sheet)
+		h := []any{"Variable 1", "Variable 2", "Category 1", "Category 2", "r", "p value", "Sign", "Strength"}
+		if diag != "" {
+			h = append([]any{"Diagram"}, h...)
+		}
+		x.SetSheetRow(sheet, "A1", &h)
+		x.SetRowStyle(sheet, 1, 1, bold)
+		off := 0
+		if diag != "" {
+			x.SetColWidth(sheet, "A", "A", 22)
+			off = 1
+		}
+		c1, _ := excelize.ColumnNumberToName(1 + off)
+		c2, _ := excelize.ColumnNumberToName(2 + off)
+		x.SetColWidth(sheet, c1, c2, 40)
+		x.SetPanes(sheet, &excelize.Panes{Freeze: true, YSplit: 1, TopLeftCell: "A2", ActivePane: "bottomLeft"})
+	} else {
+		rows, _ := x.GetRows(sheet)
+		row = len(rows) + 1
+	}
+	for _, l := range links {
+		sign := "Positive"
+		if l.R < 0 {
+			sign = "Negative"
+		}
+		v := []any{l.V1, l.V2, l.C1, l.C2, math.Round(l.R*10000) / 10000, l.P, sign, strengthName(l.R, c)}
+		if diag != "" {
+			v = append([]any{diag}, v...)
+		}
+		x.SetSheetRow(sheet, fmt.Sprintf("A%d", row), &v)
+		row++
+	}
+	return row
 }
