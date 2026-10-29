@@ -67,7 +67,7 @@ Requires Go 1.24 or newer. Run `./build.sh`. It writes the website to `docs/` an
 
 If you use Chord Diagram Studio in a publication or presentation, please cite:
 
-> Carretero-Hernandez M. Chord Diagram Studio (version 1.1.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23602942
+> Carretero-Hernandez M. Chord Diagram Studio (version 1.1.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23781656
 
 ## AI disclosure
 
