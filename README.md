@@ -1,10 +1,10 @@
 # Chord Diagram Studio
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23602942.svg)](https://doi.org/10.5281/zenodo.23602942)
+[![DOI](https://zenodo.org/badge/1428772029.svg)](https://doi.org/10.5281/zenodo.23602941)
 
 Chord Diagram Studio turns Spearman correlation and p-value matrices from Excel into publication-ready chord diagrams. It shows only significant correlations between variable categories, and lets you exclude, combine or keep apart categories, build a series of diagrams, and count correlations by sign and strength.
 
-**Use it online:** https://YOUR-USERNAME.github.io/chord-diagram-studio/
+**Use it online:** https://voulvet.github.io/ChordDiagramStudio/
 Files are processed locally in your browser; nothing is uploaded.
 
 **Desktop version** (Mac, Windows, Linux): see [Releases](../../releases).
