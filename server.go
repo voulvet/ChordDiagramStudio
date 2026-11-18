@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bytes"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -22,14 +21,10 @@ import (
 var uiHTML []byte
 
 type server struct {
-	mu       sync.Mutex
-	fileName string
-	data     []byte
-	ds       *Dataset
-	jobs     map[string][]*Diagram
-	summary  map[string][]byte
-	prefix   map[string]string
-	jobN     int
+	mu   sync.Mutex
+	sess Session
+	runs map[string]*Run
+	jobN int
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -43,116 +38,134 @@ func fail(w http.ResponseWriter, msg string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
-func (s *server) info() map[string]any {
-	return map[string]any{
-		"file": s.fileName, "sheets": s.ds.Sheets, "rsheet": s.ds.RSheet, "psheet": s.ds.PSheet,
-		"categories": s.ds.Categories, "symmetric": s.ds.Symmetric,
-		"looksVariables": s.ds.LooksVariables, "hasVarSheet": s.ds.HasVarSheet,
-	}
-}
-
+// /api/load: slot 0 = first file (or new sheets when no file is sent);
+// slot k = file k of several (k = number of files adds one); remove=1 drops slot k;
+// remove=all drops every file except the first.
 func (s *server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rs, ps := r.FormValue("rsheet"), r.FormValue("psheet")
-	if f, h, err := r.FormFile("file"); err == nil {
-		b, _ := io.ReadAll(f)
-		f.Close()
-		s.data, s.fileName = b, h.Filename
-		rs, ps = "", ""
-	}
-	if s.data == nil {
-		fail(w, "Choose an Excel file first.")
+	slot, _ := strconv.Atoi(r.FormValue("slot"))
+	switch r.FormValue("remove") {
+	case "all":
+		s.sess.RemoveExtra()
+		writeJSON(w, s.sess.Info())
+		return
+	case "1":
+		s.sess.Remove(slot)
+		writeJSON(w, s.sess.Info())
 		return
 	}
-	ds, err := LoadDataset(bytes.NewReader(s.data), rs, ps)
+	var data []byte
+	name := ""
+	if f, h, err := r.FormFile("file"); err == nil {
+		data, _ = io.ReadAll(f)
+		f.Close()
+		name = h.Filename
+	}
+	if slot > 0 && data == nil {
+		fail(w, "Choose an Excel file.")
+		return
+	}
+	if err := s.sess.Load(slot, data, name, r.FormValue("rsheet"), r.FormValue("psheet")); err != nil {
+		fail(w, err.Error())
+		return
+	}
+	writeJSON(w, s.sess.Info())
+}
+
+// /api/catsheet: read the "Categories" sheet of an Excel file.
+func (s *server) handleCatSheet(w http.ResponseWriter, r *http.Request) {
+	f, _, err := r.FormFile("file")
+	if err != nil {
+		fail(w, "Choose an Excel file.")
+		return
+	}
+	b, _ := io.ReadAll(f)
+	f.Close()
+	c, err := LoadCategories(b)
 	if err != nil {
 		fail(w, err.Error())
 		return
 	}
-	s.ds = ds
-	writeJSON(w, s.info())
+	writeJSON(w, map[string]any{"catSheet": c})
 }
 
 func (s *server) handleCategories(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ds == nil {
-		fail(w, "No file loaded.")
+	var req GenerateReq
+	json.NewDecoder(r.Body).Decode(&req)
+	m, err := s.sess.Categories(req)
+	if err != nil {
+		fail(w, err.Error())
 		return
 	}
-	var o Options
-	json.NewDecoder(r.Body).Decode(&o)
-	writeJSON(w, map[string]any{"categories": s.ds.MergedCategories(&o), "describe": s.ds.Describe(&o)})
+	writeJSON(w, m)
 }
 
 func (s *server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ds == nil {
-		fail(w, "No file loaded.")
-		return
-	}
 	var req GenerateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		fail(w, "Bad request: "+err.Error())
 		return
 	}
-	diags, err := Generate(s.ds, req, s.fileName, true)
+	run, err := s.sess.Generate(req, true)
 	if err != nil {
 		fail(w, err.Error())
 		return
 	}
 	s.jobN++
 	job := strconv.Itoa(s.jobN)
-	s.jobs[job] = diags
-	s.prefix[job] = ResolvePrefix(req, s.fileName)
-	if len(diags) > 1 {
-		s.summary[job] = SummaryXLSX(diags, req.Options.Cuts)
-	}
-	writeJSON(w, map[string]any{"job": job, "diagrams": diags, "prefix": s.prefix[job], "hasSummary": len(diags) > 1})
+	s.runs[job] = run
+	writeJSON(w, map[string]any{"job": job, "diagrams": run.Diagrams, "prefix": run.Prefix, "hasSummary": run.summary != nil,
+		"hasChanges": run.Changes != nil, "changes": run.ChangeInfo, "warnings": run.Warnings, "chordWidth": run.ChordWidth})
 }
 
-func (s *server) get(job, i string) *Diagram {
+func (s *server) run(job string) *Run {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	d := s.jobs[job]
-	k, err := strconv.Atoi(i)
-	if err != nil || k < 0 || k >= len(d) {
-		return nil
-	}
-	return d[k]
+	return s.runs[job]
 }
 
 func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
-	if r.FormValue("kind") == "summary" {
-		s.mu.Lock()
-		b, p := s.summary[r.FormValue("job")], s.prefix[r.FormValue("job")]
-		s.mu.Unlock()
+	run := s.run(r.FormValue("job"))
+	if run == nil {
+		http.NotFound(w, r)
+		return
+	}
+	const xlsxType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	switch r.FormValue("kind") {
+	case "summary", "changes":
+		b, suffix := run.summary, "_summary.xlsx"
+		if r.FormValue("kind") == "changes" {
+			b, suffix = run.Changes, "_changes.xlsx"
+		}
 		if b == nil {
 			http.NotFound(w, r)
 			return
 		}
-		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s_summary.xlsx"`, p))
+		w.Header().Set("Content-Type", xlsxType)
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s%s"`, run.Prefix, suffix))
 		w.Write(b)
 		return
 	}
-	d := s.get(r.FormValue("job"), r.FormValue("i"))
-	if d == nil {
+	k, err := strconv.Atoi(r.FormValue("i"))
+	if err != nil || k < 0 || k >= len(run.Diagrams) {
 		http.NotFound(w, r)
 		return
 	}
-	kind := r.FormValue("kind")
+	d := run.Diagrams[k]
 	var b []byte
 	var ct, ext string
-	switch kind {
+	switch r.FormValue("kind") {
 	case "png":
 		b, ct, ext = d.png, "image/png", ".png"
 	case "svg":
 		b, ct, ext = d.svg, "image/svg+xml", ".svg"
 	case "xlsx":
-		b, ct, ext = d.xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "_counts.xlsx"
+		b, ct, ext = d.xlsx, xlsxType, "_counts.xlsx"
 	}
 	if b == nil {
 		http.NotFound(w, r)
@@ -166,22 +179,18 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleZip(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	diags := s.jobs[r.FormValue("job")]
-	sum, pre := s.summary[r.FormValue("job")], s.prefix[r.FormValue("job")]
-	s.mu.Unlock()
-	if diags == nil {
+	run := s.run(r.FormValue("job"))
+	if run == nil {
 		http.NotFound(w, r)
 		return
 	}
-	data := ZipDiagrams(diags, sum, pre+"_summary.xlsx")
-	name := pre + "_all.zip"
-	if len(diags) > 1 {
-		name = pre + "_series_all.zip"
+	name := run.Prefix + "_all.zip"
+	if len(run.Diagrams) > 1 {
+		name = run.Prefix + "_series_all.zip"
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
-	w.Write(data)
+	w.Write(ZipRun(run))
 }
 
 func openBrowser(url string) {
@@ -198,13 +207,14 @@ func openBrowser(url string) {
 }
 
 func runServer(port int, noBrowser bool) {
-	s := &server{jobs: map[string][]*Diagram{}, summary: map[string][]byte{}, prefix: map[string]string{}}
+	s := &server{runs: map[string]*Run{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(uiHTML)
 	})
 	mux.HandleFunc("/api/load", s.handleLoad)
+	mux.HandleFunc("/api/catsheet", s.handleCatSheet)
 	mux.HandleFunc("/api/categories", s.handleCategories)
 	mux.HandleFunc("/api/generate", s.handleGenerate)
 	mux.HandleFunc("/api/file", s.handleFile)

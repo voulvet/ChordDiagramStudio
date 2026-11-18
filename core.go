@@ -42,7 +42,17 @@ type Dataset struct {
 	Labels         []string // unique header labels in order (variables in variable mode)
 	Vars           map[string]VarInfo
 	HasVarSheet    bool
-	LooksVariables bool // headers look like variable names (mostly unique)
+	LooksVariables bool      // headers look like variable names (mostly unique)
+	Cats           []CatInfo // optional "Categories" sheet (Category, Label, Group)
+	Warnings       []string  // data-hygiene notes (repaired sheet names, ...)
+}
+
+// CatInfo comes from an optional "Categories" sheet: the short label shown in
+// the ring and the group (outer ring) of a category. The row order is the ring order.
+type CatInfo struct {
+	Category string `json:"category"`
+	Label    string `json:"label"`
+	Group    string `json:"group"`
 }
 
 // VarInfo comes from an optional "Variables" sheet (Variable, Category, Region/Group).
@@ -73,16 +83,35 @@ func cell(rows [][]string, i, j int) string {
 }
 
 func clean(s string) string {
-	return strings.TrimSpace(strings.ReplaceAll(s, " ", " "))
+	return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		switch r {
+		case '\u00a0', '\u2007', '\u202f', '\u2009', '\u200a', '\u3000':
+			return ' '
+		case '\u200b', '\ufeff':
+			return -1
+		}
+		return r
+	}, s)), " ")
 }
 
 func LoadDataset(r io.Reader, rSheet, pSheet string) (*Dataset, error) {
-	f, err := excelize.OpenReader(r)
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the Excel file: %v", err)
+	}
+	raw, warn := repairSheetNames(raw)
+	f, err := excelize.OpenReader(bytes.NewReader(raw))
 	if err != nil {
 		return nil, fmt.Errorf("could not open the Excel file: %v", err)
 	}
 	defer f.Close()
-	ds := &Dataset{Sheets: f.GetSheetList()}
+	ds := &Dataset{Sheets: f.GetSheetList(), Warnings: warn}
+	if rSheet != "" && !contains(ds.Sheets, rSheet) {
+		rSheet = ""
+	}
+	if pSheet != "" && !contains(ds.Sheets, pSheet) {
+		pSheet = ""
+	}
 	if len(ds.Sheets) < 2 && (rSheet == "" || pSheet == "") {
 		return nil, fmt.Errorf("the file needs two sheets (r values and p-values); found %d", len(ds.Sheets))
 	}
@@ -162,7 +191,80 @@ func LoadDataset(r io.Reader, rSheet, pSheet string) (*Dataset, error) {
 		}
 		ds.HasVarSheet = len(ds.Vars) > 0
 	}
+	ds.Cats = readCatSheet(f, rSheet, pSheet)
 	return ds, nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// readCatSheet reads an optional "Categories" sheet with the columns Category,
+// Label and Group (Label and Group may be empty or missing).
+func readCatSheet(f *excelize.File, rSheet, pSheet string) []CatInfo {
+	var out []CatInfo
+	for _, sh := range f.GetSheetList() {
+		if !strings.EqualFold(strings.TrimSpace(sh), "categories") || sh == rSheet || sh == pSheet {
+			continue
+		}
+		rows, err := f.GetRows(sh)
+		if err != nil || len(rows) < 2 {
+			continue
+		}
+		cc, lc, gc := -1, -1, -1
+		for j, h := range rows[0] {
+			switch strings.ToLower(clean(h)) {
+			case "category", "categories", "variable category":
+				cc = j
+			case "label", "short name", "ring label":
+				lc = j
+			case "group", "category group":
+				gc = j
+			}
+		}
+		if cc < 0 {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, r := range rows[1:] {
+			c := clean(cell([][]string{r}, 0, cc))
+			if c == "" || seen[c] {
+				continue
+			}
+			seen[c] = true
+			ci := CatInfo{Category: c}
+			if lc >= 0 {
+				ci.Label = clean(cell([][]string{r}, 0, lc))
+			}
+			if gc >= 0 {
+				ci.Group = clean(cell([][]string{r}, 0, gc))
+			}
+			out = append(out, ci)
+		}
+		break
+	}
+	return out
+}
+
+// LoadCategories reads only the "Categories" sheet of a workbook (e.g. a
+// separate categories file).
+func LoadCategories(b []byte) ([]CatInfo, error) {
+	b, _ = repairSheetNames(b)
+	f, err := excelize.OpenReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, fmt.Errorf("could not open the categories file: %v", err)
+	}
+	defer f.Close()
+	c := readCatSheet(f, "", "")
+	if len(c) == 0 {
+		return nil, fmt.Errorf("no sheet called \"Categories\" with a column \"Category\" was found")
+	}
+	return c, nil
 }
 
 // ---------------- filtering ----------------
@@ -189,6 +291,23 @@ type Options struct {
 	Ungrouped   string `json:"ungrouped"`   // variables without group: "include" (default) or "exclude"
 	WithinGroup bool   `json:"withinGroup"` // only correlations between variables of the same group
 	Group       string `json:"-"`           // one-diagram-per-group: the current group
+
+	CatInfo []CatInfo `json:"catInfo"` // ring label and group per category (Categories sheet or table)
+}
+
+// catMaps returns label and group per category (after merging).
+func (o *Options) catMaps() (map[string]string, map[string]string) {
+	lab, grp := map[string]string{}, map[string]string{}
+	for _, c := range o.CatInfo {
+		k := clean(c.Category)
+		if c.Label != "" {
+			lab[k] = clean(c.Label)
+		}
+		if c.Group != "" {
+			grp[k] = clean(c.Group)
+		}
+	}
+	return lab, grp
 }
 
 type Cuts struct {
@@ -201,6 +320,13 @@ type Link struct {
 	C1, C2 string
 	R, P   float64
 	V1, V2 string // variable labels (same order as C1, C2)
+	G1, G2 string // region/group codes of V1, V2 ("" = none)
+	File   string // label of the file the correlation comes from (several files)
+}
+
+// swap turns the link around (C1 <-> C2 with their variables and regions).
+func (l *Link) swap() {
+	l.C1, l.C2, l.V1, l.V2, l.G1, l.G2 = l.C2, l.C1, l.V2, l.V1, l.G2, l.G1
 }
 
 type Removed struct {
@@ -268,6 +394,7 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 		a, b   string
 		r, p   float64
 		va, vb string
+		ga, gb string
 	}
 	var raws []raw
 	for i := 0; i < len(ds.rowCat); i++ {
@@ -326,7 +453,7 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 				rm.NotSig++
 				continue
 			}
-			raws = append(raws, raw{a, b, r, p, va, vb})
+			raws = append(raws, raw{a, b, r, p, va, vb, ga, gb})
 		}
 	}
 	// ring order: user order, then remaining categories in appearance order
@@ -341,7 +468,13 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 	for _, c := range o.Order {
 		add(clean(c))
 	}
-	for _, c := range ds.MergedCategories(o) {
+	merged := ds.MergedCategories(o)
+	for _, c := range o.CatInfo {
+		if contains(merged, clean(c.Category)) {
+			add(clean(c.Category))
+		}
+	}
+	for _, c := range merged {
 		add(c)
 	}
 	idx := map[string]int{}
@@ -350,11 +483,11 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 	}
 	links := make([]Link, 0, len(raws))
 	for _, x := range raws {
-		a, b, va, vb := x.a, x.b, x.va, x.vb
-		if idx[a] > idx[b] {
-			a, b, va, vb = b, a, vb, va
+		l := Link{C1: x.a, C2: x.b, R: x.r, P: x.p, V1: x.va, V2: x.vb, G1: x.ga, G2: x.gb}
+		if idx[l.C1] > idx[l.C2] {
+			l.swap()
 		}
-		links = append(links, Link{C1: a, C2: b, R: x.r, P: x.p, V1: va, V2: vb})
+		links = append(links, l)
 	}
 	return links, order, rm
 }
@@ -472,7 +605,7 @@ func CountLinks(links []Link, order []string, c Cuts, rm Removed) Counts {
 	return out
 }
 
-func CountsXLSX(cn Counts, links []Link, cuts Cuts) ([]byte, error) {
+func CountsXLSX(cn Counts, links []Link, cuts Cuts, segs *segTable, warnings []string) ([]byte, error) {
 	x := excelize.NewFile()
 	defer x.Close()
 	bold, _ := x.NewStyle(&excelize.Style{Font: &excelize.Font{Bold: true}})
@@ -525,6 +658,7 @@ func CountsXLSX(cn Counts, links []Link, cuts Cuts) ([]byte, error) {
 	writePairs("Pairwise counts", cn.Pairs, false)
 	writePairs("Per category", cn.PerCat, true)
 	writeLinks(x, "All correlations", "", links, cuts, bold)
+	writeExtras(x, segs, warnings, bold)
 	var buf bytes.Buffer
 	if err := x.Write(&buf); err != nil {
 		return nil, err
@@ -609,13 +743,20 @@ func toHex(r, g, b float64) string {
 // ---------------- canvas (PNG + SVG) ----------------
 
 const (
-	W     = 4800.0
-	H     = 4150.0
-	scale = 1090.0
-	cx    = W / 2
-	cy    = 1950.0
-	ptpx  = 300.0 / 72.0
+	W    = 4800.0
+	cx   = W / 2
+	ptpx = 300.0 / 72.0
 )
+
+// Canvas height and the vertical position of the circle centre. The classic
+// and comparison layouts use 4150 / 1950; layouts with extra rings set their own.
+var (
+	H     = 4150.0
+	cy    = 1950.0
+	scale = 1090.0 // pixels per unit radius
+)
+
+func setCanvas(h, c float64) { H, cy = h, c }
 
 func px(p pt) pt { return pt{cx + p.X*scale, cy - p.Y*scale} }
 
@@ -767,6 +908,25 @@ func wrap(s string, width int) []string {
 // colorOrder gives each category a fixed colour index (stable across a series).
 // Render draws the diagram. With wantPNG=false only the SVG is produced (much faster).
 func Render(links []Link, order []string, colorOrder []string, title string, wantPNG bool) ([]byte, []byte, error) {
+	return RenderClassic(links, order, colorOrder, title, 0, 12, 30, wantPNG)
+}
+
+// classicFit: the widest chord (radians) that fits the classic layout.
+func classicFit(links []Link, order []string) float64 {
+	present := map[string]bool{}
+	for _, l := range links {
+		present[l.C1], present[l.C2] = true, true
+	}
+	if len(links) == 0 {
+		return 0
+	}
+	avail := 2*math.Pi - deg(7)*float64(len(present))
+	return chordFill * avail / float64(2*len(links))
+}
+
+// RenderClassic draws the classic diagram. chordW = drawn chord width in
+// radians (0 = automatic: 55 % of the slot); labPt/wrapN = category labels.
+func RenderClassic(links []Link, order []string, colorOrder []string, title string, chordW, labPt float64, wrapN int, wantPNG bool) ([]byte, []byte, error) {
 	n := len(order)
 	idx := map[string]int{}
 	for i, c := range order {
@@ -797,7 +957,23 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 		return nil, nil, fmt.Errorf("no correlations to draw")
 	}
 	gap := 7 * math.Pi / 180
-	segarc := (2*math.Pi - gap*float64(len(present))) / float64(len(present))
+	avail := 2*math.Pi - gap*float64(len(present))
+	var counts []int
+	for _, c := range present {
+		counts = append(counts, len(ends[c]))
+	}
+	slot := 0.0
+	if chordW > 0 {
+		slot = chordW / chordFill
+	}
+	arcs, _, err := allocate(counts, avail, false, 0, slot)
+	if err != nil {
+		return nil, nil, err
+	}
+	segArc := map[string]float64{}
+	for i, c := range present {
+		segArc[c] = arcs[i]
+	}
 	type span struct{ a1, a2 float64 }
 	pos := map[[2]int]span{}
 	segs := map[string]span{}
@@ -821,7 +997,7 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 			return ri < rj
 		})
 		start := th
-		unit := segarc / float64(len(e))
+		unit := segArc[c] / float64(len(e))
 		for _, x := range e {
 			pos[[2]int{x.link, x.side}] = span{th, th - unit}
 			th -= unit
@@ -850,7 +1026,11 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 		A, B := pos[[2]int{i, 0}], pos[[2]int{i, 1}]
 		ma, wa := (A.a1+A.a2)/2, A.a1-A.a2
 		mb, wb := (B.a1+B.a2)/2, B.a1-B.a2
-		c.fill(ribbon(ma+f*wa, ma-f*wa, mb+f*wb, mb-f*wb), toHex(cmap(links[i].R)), 0.95)
+		ha, hb := f*wa, f*wb
+		if chordW > 0 {
+			ha, hb = chordW/2, chordW/2
+		}
+		c.fill(ribbon(ma+ha, ma-ha, mb+hb, mb-hb), toHex(cmap(links[i].R)), 0.95)
 	}
 	for _, cat := range present {
 		s := segs[cat]
@@ -880,9 +1060,13 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 			}
 		}
 		sort.Slice(L, func(i, j int) bool { return L[i].y > L[j].y })
+		gapOf := func(a, b *lab) float64 {
+			h := func(l *lab) float64 { return float64(len(wrap(l.cat, wrapN))) * labPt * ptpx * 1.25 / scale }
+			return math.Max(0.36, (h(a)+h(b))/2+0.06)
+		}
 		for j := 1; j < len(L); j++ {
-			if L[j-1].y-L[j].y < 0.36 {
-				L[j].y = L[j-1].y - 0.36
+			if g := gapOf(L[j-1], L[j]); L[j-1].y-L[j].y < g {
+				L[j].y = L[j-1].y - g
 			}
 		}
 	}
@@ -890,13 +1074,27 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 		a0 := polar(l.mid, 1.10)
 		lx := l.side * math.Max(math.Abs(a0.X)+0.08, 1.25)
 		dk := dark[cidx[l.cat]%len(dark)]
-		c.polyline([]pt{px(a0), px(pt{a0.X + l.side*0.04, l.y}), px(pt{lx, l.y})}, dk, 4)
+		// keep the leader line outside the ring when the label was pushed away
+		// from its segment: out horizontally, then vertically, then to the label
+		ymin := math.Min(math.Abs(a0.Y), math.Abs(l.y))
+		if a0.Y*l.y < 0 {
+			ymin = 0
+		}
+		ex := math.Max(math.Abs(a0.X)+0.04, math.Sqrt(math.Max(0, 1.15*1.15-ymin*ymin)))
+		if math.Abs(a0.Y-l.y) > 0.02 && ex > math.Abs(a0.X)+0.04 {
+			if ex+0.05 > math.Abs(lx) {
+				lx = l.side * (ex + 0.05)
+			}
+			c.polyline([]pt{px(a0), px(pt{l.side * ex, a0.Y}), px(pt{l.side * ex, l.y}), px(pt{lx, l.y})}, dk, 4)
+		} else {
+			c.polyline([]pt{px(a0), px(pt{a0.X + l.side*0.04, l.y}), px(pt{lx, l.y})}, dk, 4)
+		}
 		anchor := "start"
 		if l.side < 0 {
 			anchor = "end"
 		}
 		tp := px(pt{lx + l.side*0.03, l.y})
-		c.text(tp.X, tp.Y, wrap(l.cat, 30), 12, dk, anchor, true)
+		c.text(tp.X, tp.Y, wrap(l.cat, wrapN), labPt, dk, anchor, true)
 	}
 	npos, nneg := 0, 0
 	for _, l := range links {
@@ -945,6 +1143,32 @@ func Render(links []Link, order []string, colorOrder []string, title string, wan
 	return pngBuf.Bytes(), []byte(c.svg.String()), nil
 }
 
+// writeExtras adds the chord ends per ring segment and the data-hygiene notes.
+func writeExtras(x *excelize.File, segs *segTable, warnings []string, bold int) {
+	if segs != nil && len(segs.rows) > 0 {
+		sh := "Chord ends per segment"
+		x.NewSheet(sh)
+		x.SetSheetRow(sh, "A1", &segs.header)
+		x.SetRowStyle(sh, 1, 1, bold)
+		for i, r := range segs.rows {
+			row := r
+			x.SetSheetRow(sh, fmt.Sprintf("A%d", i+2), &row)
+		}
+		last, _ := excelize.ColumnNumberToName(len(segs.header))
+		x.SetColWidth(sh, "A", last, 30)
+	}
+	if len(warnings) > 0 {
+		sh := "Warnings"
+		x.NewSheet(sh)
+		x.SetSheetRow(sh, "A1", &[]any{"Notes on the input files"})
+		x.SetRowStyle(sh, 1, 1, bold)
+		for i, w := range warnings {
+			x.SetSheetRow(sh, fmt.Sprintf("A%d", i+2), &[]any{w})
+		}
+		x.SetColWidth(sh, "A", "A", 120)
+	}
+}
+
 func strengthName(r float64, c Cuts) string {
 	return []string{"Very strong", "Strong", "Moderate", "Weak"}[bandOf(r, c)]
 }
@@ -955,7 +1179,7 @@ func writeLinks(x *excelize.File, sheet, diag string, links []Link, c Cuts, bold
 	row := 2
 	if idx < 0 {
 		x.NewSheet(sheet)
-		h := []any{"Variable 1", "Variable 2", "Category 1", "Category 2", "r", "p value", "Sign", "Strength"}
+		h := []any{"Variable 1", "Variable 2", "Category 1", "Category 2", "r", "p value", "Sign", "Strength", "Region 1", "Region 2", "File"}
 		if diag != "" {
 			h = append([]any{"Diagram"}, h...)
 		}
@@ -979,7 +1203,7 @@ func writeLinks(x *excelize.File, sheet, diag string, links []Link, c Cuts, bold
 		if l.R < 0 {
 			sign = "Negative"
 		}
-		v := []any{l.V1, l.V2, l.C1, l.C2, math.Round(l.R*10000) / 10000, l.P, sign, strengthName(l.R, c)}
+		v := []any{l.V1, l.V2, l.C1, l.C2, math.Round(l.R*10000) / 10000, l.P, sign, strengthName(l.R, c), l.G1, l.G2, l.File}
 		if diag != "" {
 			v = append([]any{diag}, v...)
 		}

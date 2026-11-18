@@ -10,8 +10,8 @@ var parenGroup = regexp.MustCompile(`\(\s*([^()]+?)\s*\)\s*$`)
 var shortCode = regexp.MustCompile(`^[A-Z0-9]{1,4}$`)
 
 // detectGroup finds a group code (e.g. an anatomical region) in a variable name:
-// text in brackets at the end, "Biomechanics_IM(AE)" -> AE, or a short upper-case
-// code after the last separator, "Macroscopy_IndiaInk_AE" -> AE.
+// text in brackets at the end, "Biomechanics_Modulus(MED)" -> MED, or a short upper-case
+// code after the last separator, "Macroscopy_IndiaInk_MED" -> MED.
 func detectGroup(name, sep string) string {
 	if m := parenGroup.FindStringSubmatch(name); m != nil {
 		return clean(m[1])

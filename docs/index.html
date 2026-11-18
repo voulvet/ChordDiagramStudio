@@ -15,7 +15,7 @@ body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Helveti
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line)}
 header h1{font-size:18px;margin:0;font-weight:650}
 header .file{color:var(--muted);font-size:13px}
-main{display:grid;grid-template-columns:400px 1fr;gap:18px;padding:18px 22px;align-items:start}
+main{display:grid;grid-template-columns:460px 1fr;gap:18px;padding:18px 22px;align-items:start}
 #settings{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto;padding-right:4px}
 @media (max-width:980px){main{grid-template-columns:1fr}#settings{position:static;max-height:none}}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
@@ -112,7 +112,7 @@ footer a{color:var(--accent)}
     <label>Row 1 and column A contain</label>
     <div class="radio">
       <label><input type="radio" name="header" value="category" checked><span><b>Category names</b> (e.g. Macroscopy, MicroCT)</span></label>
-      <label><input type="radio" name="header" value="variable"><span><b>Variable names</b> (e.g. MicroCT_SCBP BMD (AE))</span></label>
+      <label><input type="radio" name="header" value="variable"><span><b>Variable names</b> (e.g. MicroCT_BV/TV (MED))</span></label>
     </div>
     <div id="varOpts" style="display:none">
       <div class="row" style="margin-top:6px">
@@ -125,11 +125,44 @@ footer a{color:var(--accent)}
     <input type="number" id="alpha" value="0.05" step="0.01" min="0" max="1">
   </div>
 
+  <div class="panel">
+    <h2>Input</h2>
+    <div class="seg">
+      <label><input type="radio" name="input" value="one" checked><span>One Excel file</span></label>
+      <label><input type="radio" name="input" value="several"><span>Several Excel files</span></label>
+    </div>
+    <div id="tpOpts" style="display:none">
+      <div class="hint">Files with the <b>same group</b> are combined into one diagram (e.g. two studies); <b>different groups</b> are compared (e.g. Control and OA, or two time-points). The <b>file label</b> names each file in the diagram (e.g. Study A).</div>
+      <table class="cats" id="fileTable" style="margin-top:8px"></table>
+      <label>Add Excel files (same layout as the first file)</label>
+      <input type="file" id="file2" accept=".xlsx,.xlsm" multiple>
+      <label>Layout</label>
+      <select id="layout">
+        <option value="compare">Compare groups: categories left, groups right</option>
+        <option value="ring">One diagram per group (full circle; files of a group combined)</option>
+        <option value="split">One diagram per group: categories left, files right</option>
+      </select>
+      <div class="hint" id="layoutHint"></div>
+      <div id="regionsOpt">
+        <label>Regions with the same code in different files</label>
+        <div class="radio">
+          <label><input type="radio" name="regions" value="separate" checked><span>Separate (e.g. region AC of Study A is not region AC of Study B)</span></label>
+          <label><input type="radio" name="regions" value="combined"><span>Combined (same code = same region)</span></label>
+        </div>
+      </div>
+      <div id="hlOpt"><label>Highlight</label>
+      <select id="highlight"></select></div>
+      <div class="detect" id="check2" style="display:none"></div>
+    </div>
+  </div>
+
   <div class="panel" id="groupPanel" style="display:none">
     <h2>Regions</h2>
-    <div class="hint" style="margin-top:0">Found from the code in brackets at the end of a variable name, e.g. "(AE)", or after the last separator, e.g. "_AE".</div>
+    <div class="hint" style="margin-top:0">Found from the code in brackets at the end of a variable name, e.g. "(MED)", or after the last separator, e.g. "_MED".</div>
     <label>Name of this grouping</label>
     <input type="text" id="groupLabel" value="Region">
+    <label>Name for variables without a region (in rings and tables)</label>
+    <input type="text" id="noRegion" value="No region">
     <label>Variables without a region</label>
     <div class="radio">
       <label><input type="radio" name="ungrouped" value="include" checked><span>Include in every region (e.g. whole-joint scores)</span></label>
@@ -150,8 +183,10 @@ footer a{color:var(--accent)}
 
   <div class="panel">
     <h2>Categories</h2>
-    <div class="hint" style="margin-top:0">Untick to exclude. Arrows set the order around the ring. Colours stay fixed per category.</div>
+    <div class="hint" style="margin-top:0">Untick to exclude. Arrows set the order around the ring. Colours stay fixed per category. <b>Label</b> = short name inside the ring; <b>Group</b> = outer ring (e.g. tissue). Both are read from a "Categories" sheet when the file has one.</div>
     <table class="cats" id="cats"><tr><td class="empty">Load a file to see its categories.</td></tr></table>
+    <label>Read labels and groups from a "Categories" sheet in another file</label>
+    <input type="file" id="catFile" accept=".xlsx,.xlsm">
   </div>
 
   <div class="panel">
@@ -179,6 +214,46 @@ footer a{color:var(--accent)}
   </div>
 
   <div class="panel">
+    <h2>Appearance</h2>
+    <label>Chord thickness</label>
+    <div class="row">
+      <div><select id="chordMode">
+        <option value="auto">Automatic (fills each segment)</option>
+        <option value="same">Same in every diagram of this run (widest that fits)</option>
+        <option value="fixed">Fixed width in degrees</option>
+      </select></div>
+      <div style="flex:0 0 auto"><input type="number" id="chordDeg" value="0.2" step="0.01" min="0.01" style="display:none"></div>
+    </div>
+    <div class="row">
+      <div><label>Label size (pt, 0 = automatic)</label><input type="number" id="labelSize" value="0" step="1" min="0"></div>
+      <div><label>Characters per line (0 = automatic)</label><input type="number" id="labelWrap" value="0" step="1" min="0"></div>
+    </div>
+    <label class="row" style="gap:6px"><input type="checkbox" id="scale" style="width:auto"> Count scale on the rings (number of chords)</label>
+    <label>Segment sizes</label>
+    <select id="segments">
+      <option value="auto">Automatic (proportional with the scale, else equal)</option>
+      <option value="equal">Equal</option>
+      <option value="proportional">Proportional to the number of chords</option>
+    </select>
+    <label>Extra rings <span class="hint">(full circle: outer rings; files right: regions)</span></label>
+    <div class="row" style="gap:14px">
+      <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="ringGroup" style="width:auto"> Group</label>
+      <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="ringRegion" style="width:auto"> <span id="ringRegionTxt">Region</span></label>
+      <label class="row" style="gap:6px;margin:0"><input type="checkbox" id="ringFile" style="width:auto"> File</label>
+    </div>
+    <label>Names of ring segments</label>
+    <select id="ringLabels">
+      <option value="auto">Automatic (inside when there are extra rings)</option>
+      <option value="inside">Inside the rings (curved)</option>
+      <option value="outside">Outside, with leader lines</option>
+    </select>
+    <div class="row">
+      <div><label>The Group column means</label><input type="text" id="groupWord" placeholder="group (e.g. tissue)"></div>
+      <div><label>The files are</label><input type="text" id="fileWord" placeholder="file (e.g. study)"></div>
+    </div>
+  </div>
+
+  <div class="panel">
     <h2>Strength categories (|r|, positive or negative)</h2>
     <div class="row">
       <div><label>Very strong ≥</label><input type="number" id="cutVS" value="0.8" step="0.05"></div>
@@ -202,22 +277,25 @@ footer a{color:var(--accent)}
 <div id="boot"><div class="spin"></div><div id="bootMsg">Loading Chord Diagram Studio…</div></div>
 <footer>
   <p id="citeFoot"></p>
-  <p><b>Privacy:</b> files are processed locally in your browser with WebAssembly; nothing is uploaded. A desktop version for Mac, Windows and Linux is available from the <a href="https://github.com/YOUR-USERNAME/YOUR-REPOSITORY/releases" id="relLink">project's GitHub releases</a>.</p>
+  <p><b>Privacy:</b> files are processed locally in your browser with WebAssembly; nothing is uploaded. A desktop version for Mac, Windows and Linux is available from the <a href="https://github.com/voulvet/ChordDiagramStudio/releases" id="relLink">project's GitHub releases</a>.</p>
   <p><b>AI disclosure:</b> The source code of Chord Diagram Studio was generated with Claude (Anthropic), an AI assistant, based on the author's specifications. The author defined the requirements and design, and tested and validated the program's output against independent calculations. The program draws figures directly from the input data; it does not use AI to create or modify them.</p>
 </footer>
 <script src="wasm_exec.js"></script>
 
 <script>
-// ===== Citation: after Zenodo gives you the DOI, change only the next two lines =====
-const CITE_DOI='10.5281/zenodo.23781656';
-const CITE_VERSION='1.1.0';
+// ===== Citation: concept DOI (always resolves to the latest version); update the version at each release =====
+const CITE_DOI='10.5281/zenodo.23602941';
+const CITE_VERSION='2.0.0';
 // ====================================================================================
 const CITE_TEXT=`Carretero-Hernandez M. Chord Diagram Studio (version ${CITE_VERSION}) [Software]. Zenodo. https://doi.org/${CITE_DOI}`;
 function citeBox(){return `<div><p><b>Using these diagrams in a publication or presentation? Please cite Chord Diagram Studio:</b></p><p class="ref">${CITE_TEXT.replace(/(https:\/\/doi\.org\/\S+)/,'<a href="$1" target="_blank" rel="noopener">$1</a>')}</p></div><button class="small" data-copycite>Copy citation</button>`}
 function wireCite(root){root.querySelectorAll('[data-copycite]').forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(CITE_TEXT);b.textContent='Copied ✓';setTimeout(()=>b.textContent='Copy citation',1500)}catch(e){prompt('Copy the citation:',CITE_TEXT)}})}
 const PASTEL=["#FFD59E","#B5EAD7","#C7B8EA","#FFB7C5","#A2D2FF","#FFF1A8","#D4F0B0","#F9C6E0","#FFC4A8","#A8E6E2","#E2C6F5","#C9D9A6","#B8C7F0","#F5D0A9","#D6E8F5","#EEC9C9"];
 const $=id=>document.getElementById(id);
-let state={order:[],included:{},series:{},counts:{},groups:[],groupOn:{}};let loaded=false;let info=null;
+let state={order:[],included:{},series:{},counts:{},groups:[],groupOn:{},label:{},group:{}};let loaded=false;let info=null;
+let extra=[]; // further files: {name, group, label}
+let first={group:'',label:''};
+const several=()=>radio('input')==='several';
 
 function showErr(m){const e=$('err');e.textContent=m||'';e.style.display=m?'block':'none'}
 const tick=()=>new Promise(r=>setTimeout(r,30));
@@ -226,19 +304,24 @@ function parse(x){const j=JSON.parse(x);if(j.error)throw new Error(j.error);retu
 let fileBytes=null,fileName='';
 async function api(url,opts){
   await tick();
-  if(url==='/api/load'){const fd=opts.body;const f=fd.get('file');
-    if(f){fileBytes=new Uint8Array(await f.arrayBuffer());fileName=f.name;return parse(chordLoad(fileBytes,fileName,'',''))}
-    return parse(chordLoad(null,'',fd.get('rsheet'),fd.get('psheet')))}
+  if(url==='/api/load'){const fd=opts.body;const slot=+(fd.get('slot')||0);
+    if(fd.get('remove')==='all')return parse(chordRemove(-1));
+    if(fd.get('remove')==='1')return parse(chordRemove(slot));
+    const f=fd.get('file');
+    if(f){fileBytes=new Uint8Array(await f.arrayBuffer());fileName=f.name;return parse(chordLoad(slot,fileBytes,fileName,'',''))}
+    return parse(chordLoad(0,null,'',fd.get('rsheet')||'',fd.get('psheet')||''))}
+  if(url==='/api/catsheet'){const f=opts.body.get('file');return parse(chordCatSheet(new Uint8Array(await f.arrayBuffer())))}
   if(url==='/api/categories')return parse(chordCategories(opts.body));
   if(url==='/api/generate')return parse(chordGenerate(opts.body));
   throw new Error('unknown '+url)}
 function blobURL(i,kind){const b=chordFile(i,kind);if(!b)return null;
-  const t={png:'image/png',svg:'image/svg+xml',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',summary:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}[kind];
+  const x='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const t={png:'image/png',svg:'image/svg+xml',xlsx:x,summary:x,changes:x}[kind];
   return URL.createObjectURL(new Blob([b],{type:t}))}
 function save(url,name){const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000)}
 let current=null;
 async function download(i,kind){
-  if(kind==='summary'){const u=blobURL(0,'summary');if(u)save(u,current.prefix+'_summary.xlsx');return}
+  if(kind==='summary'||kind==='changes'){const u=blobURL(0,kind);if(u)save(u,current.prefix+'_'+kind+'.xlsx');return}
   const d=current.diagrams[i];
   if(kind==='png'){status('Rendering 300 dpi PNG for '+d.name+'…');await tick()}
   try{const u=blobURL(i,kind);if(u)save(u,d.file+(kind==='xlsx'?'_counts.xlsx':'.'+kind))}finally{status('')}
@@ -274,18 +357,78 @@ async function load(withFile){
     info=await api('/api/load',{method:'POST',body:fd});
     fillSheets(info);loaded=true;
     if(withFile){
-      state={order:[],included:{},series:{},counts:{},groups:[],groupOn:{}};
+      state={order:[],included:{},series:{},counts:{},groups:[],groupOn:{},label:{},group:{}};
       setRadio('header',info.looksVariables?'variable':'category');
       $('useSheet').checked=!!info.hasVarSheet;
+      applyCatSheet(info.catSheet);
+      first={group:info.file.replace(/\.xls[xm]$/i,''),label:info.file.replace(/\.xls[xm]$/i,'')};
     }
     $('sheetOpt').style.display=info.hasVarSheet?'flex':'none';
     updateModeUI();
     await refreshCats();
     $('go').disabled=false;
     if(withFile && !$('prefix').value){$('prefix').placeholder=info.file.replace(/\.xls[xm]$/i,'')+'_chord'}
+    renderFiles();showCheck();
   }catch(e){showErr(e.message)}
 }
 $('file').onchange=()=>load(true);
+function applyCatSheet(cs){
+  if(!cs||!cs.length)return;
+  const ord=cs.map(c=>c.category);
+  state.order=ord.concat(state.order.filter(c=>!ord.includes(c)));
+  cs.forEach(c=>{state.label[c.category]=c.label||'';state.group[c.category]=c.group||''});
+}
+function showCheck(){
+  const el=$('check2');
+  const w=(info&&info.warnings)||[];
+  let h='';
+  (info&&info.files||[]).forEach((f,i)=>{const c=f.check;const ex=extra[i];
+    if(ex&&first.label&&(ex.label||'').trim()!==(first.label||'').trim()&&several()){h+=`<div><b>${esc(f.name)}</b> · ${c.n2} variables (another file label: compared only with files of the same label)</div>`;return}
+    if(c.same)h+=`<div><b>${esc(f.name)}</b> · same ${c.n1} variables as the first file ✓</div>`;
+    else h+=`<div><b>${esc(f.name)}</b> · <span style="color:var(--warn)">differs from the first file:</span> ${c.onlyCount[0]} variable(s) only in the first${c.only1.length?' ('+c.only1.map(esc).join(', ')+(c.onlyCount[0]>c.only1.length?', …':'')+')':''}; ${c.onlyCount[1]} only in this file${c.only2.length?' ('+c.only2.map(esc).join(', ')+(c.onlyCount[1]>c.only2.length?', …':'')+')':''}. Fine for different studies; for groups of one study check the names.</div>`});
+  w.forEach(x=>h+=`<div style="color:var(--warn)">${esc(x)}</div>`);
+  el.innerHTML=h;el.style.display=h?'block':'none';
+  const dw=$('detectWarn');if(dw)dw.innerHTML=w.map(x=>`<div style="color:var(--warn)">${esc(x)}</div>`).join('');
+}
+function groupNames(){const g=[];[first].concat(extra).forEach(f=>{const n=(f.group||'').trim()||'Group';if(!g.includes(n))g.push(n)});return g}
+function renderFiles(){
+  const t=$('fileTable');
+  let h='<tr><th>File</th><th>Group</th><th>File label</th><th></th></tr>';
+  const row=(f,i)=>`<tr><td style="word-break:break-all">${esc(f.name)}</td><td><input type="text" data-fg="${i}" value="${esc(f.group)}" placeholder="e.g. Control"></td><td><input type="text" data-fl="${i}" value="${esc(f.label)}" placeholder="e.g. Study A"></td><td>${i>0?`<button class="small" data-rm="${i}" title="Remove">✕</button>`:''}</td></tr>`;
+  h+=row({name:info?info.file:'(first file)',group:first.group,label:first.label},0);
+  extra.forEach((f,i)=>h+=row(f,i+1));
+  t.innerHTML=h;
+  t.querySelectorAll('[data-fg]').forEach(x=>x.oninput=()=>{const i=+x.dataset.fg;(i?extra[i-1]:first).group=x.value;renderHL();updateModeUI()});
+  t.querySelectorAll('[data-fl]').forEach(x=>x.oninput=()=>{const i=+x.dataset.fl;(i?extra[i-1]:first).label=x.value});
+  t.querySelectorAll('[data-fl],[data-fg]').forEach(x=>x.onchange=refreshCats);
+  t.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{const i=+b.dataset.rm;const fd=new FormData();fd.append('slot',String(i));fd.append('remove','1');
+    try{info=await api('/api/load',{method:'POST',body:fd});extra.splice(i-1,1);renderFiles();showCheck();refreshCats()}catch(e){showErr(e.message)}});
+  renderHL();
+}
+function renderHL(){
+  const s=$('highlight');const v=s.value;const g=groupNames();
+  s.innerHTML='<option value="0">None (all groups in full colour)</option>'+g.map((n,i)=>`<option value="${i+1}">${esc(n)} (the other groups toned down)</option>`).join('');
+  if(+v<=g.length)s.value=v||'0';
+}
+$('file2').onchange=async()=>{
+  showErr('');
+  for(const f of [...$('file2').files]){
+    const fd=new FormData();fd.append('slot',String(extra.length+1));fd.append('file',f);
+    try{info=await api('/api/load',{method:'POST',body:fd});const b=f.name.replace(/\.xls[xm]$/i,'');extra.push({name:f.name,group:b,label:b});
+    }catch(e){showErr(e.message);break}
+  }
+  $('file2').value='';renderFiles();showCheck();updateModeUI();refreshCats();
+};
+document.querySelectorAll('input[name=input]').forEach(x=>x.onchange=()=>{updateModeUI();refreshCats()});
+$('layout').onchange=()=>{updateModeUI();refreshCats()};
+document.querySelectorAll('input[name=regions]').forEach(x=>x.onchange=refreshCats);
+$('chordMode').onchange=()=>{$('chordDeg').style.display=$('chordMode').value==='fixed'?'':'none'};
+$('catFile').onchange=async()=>{
+  if(!$('catFile').files.length)return;
+  const fd=new FormData();fd.append('file',$('catFile').files[0]);
+  try{const j=await api('/api/catsheet',{method:'POST',body:fd});applyCatSheet(j.catSheet);renderCats()}catch(e){showErr(e.message)}
+  $('catFile').value='';
+};
 $('rsheet').onchange=()=>load(false);
 $('psheet').onchange=()=>load(false);
 
@@ -304,11 +447,17 @@ $('addMerge').onclick=()=>addMerge();
 function baseOptions(){
   return {merge:merges(),header:radio('header'),sep:$('sep').value||'_',useSheet:$('useSheet').checked&&!!(info&&info.hasVarSheet),ungrouped:radio('ungrouped')};
 }
+function fileReq(){
+  const sev=several()&&extra.length>0;
+  const fs=[first].concat(extra);
+  return {compare:sev,layout:sev?$('layout').value:'',regions:radio('regions'),
+    fileGroups:sev?fs.map(f=>(f.group||'').trim()||'Group'):[],fileLabels:sev?fs.map(f=>(f.label||'').trim()):[]};
+}
 
 async function refreshCats(){
   if(!loaded)return;
   try{
-    const j=await api('/api/categories',{method:'POST',body:JSON.stringify(baseOptions())});
+    const j=await api('/api/categories',{method:'POST',body:JSON.stringify(Object.assign(fileReq(),{options:baseOptions()}))});
     const cats=j.categories;const d=j.describe;
     const kept=state.order.filter(c=>cats.includes(c));
     cats.forEach(c=>{if(!kept.includes(c))kept.push(c)});
@@ -330,11 +479,21 @@ function renderDetect(d){
   if(g.length)h+=` · <b>${g.length}</b> ${esc(gLabel().toLowerCase())}s`;
   if(g.length)h+=`<div class="chips">${g.map(x=>`<span class="chip">${esc(x.name)} <span class="cnt">${x.count}</span></span>`).join('')}</div>`;
   if(d.ungrouped)h+=`<div style="margin-top:5px">${d.ungrouped} variable(s) without a ${esc(gLabel().toLowerCase())}</div>`;
-  $('detect').innerHTML=h;
+  $('detect').innerHTML=h+'<div id="detectWarn"></div>';showCheck();
   $('ungroupedList').textContent=d.ungrouped?('Without a '+gLabel().toLowerCase()+': '+d.ungroupedExamples.join(', ')+(d.ungrouped>d.ungroupedExamples.length?', …':'')):'No variables without a '+gLabel().toLowerCase()+'.';
 }
 
 function updateModeUI(){
+  const sev=several();
+  $('tpOpts').style.display=sev?'block':'none';
+  const ng=groupNames().length;
+  $('hlOpt').style.display=sev&&$('layout').value==='compare'?'block':'none';
+  $('regionsOpt').style.display=sev&&varMode()?'block':'none';
+  const lh={compare:'Variable categories on the left, groups on the right (first group at the top). Each correlation is one chord from one of its categories (balanced so that every category appears on the left) to the group where it was found; the inner band shows the category at its other end. Files of the same group are combined.',
+    ring:'One full-circle diagram per group; the correlations of all files of the group are drawn together (never across files). Add rings for the file, region or category group under Appearance.',
+    split:'One diagram per group: categories on the left, the files of the group on the right (optionally split by region: Appearance → Extra rings → Region).'}[$('layout').value];
+  $('layoutHint').textContent=lh+(sev&&ng<2&&$('layout').value==='compare'?' Give the files different group names to compare them.':'');
+  $('ringRegionTxt').textContent=gLabel();
   const vm=varMode();const hasG=vm&&state.groups.length>0;
   $('varOpts').style.display=vm?'block':'none';
   $('groupPanel').style.display=hasG?'block':'none';
@@ -358,7 +517,7 @@ function seriesMode(){return radio('mode')==='series'}
 
 function renderCats(){
   const t=$('cats');const sm=seriesMode();
-  let h=`<tr><th class="ord">Order</th><th>Category</th><th class="c">Include</th>${sm?'<th class="c">Series</th>':''}</tr>`;
+  let h=`<tr><th class="ord">Order</th><th>Category</th><th class="c">Include</th>${sm?'<th class="c">Series</th>':''}<th>Label</th><th>Group</th></tr>`;
   let ci=0;
   state.order.forEach((c,i)=>{
     const n=varMode()&&state.counts[c]?`<span class="cnt">${state.counts[c]}</span>`:'';
@@ -366,7 +525,8 @@ function renderCats(){
     h+=`<tr><td class="ord"><button class="small" data-up="${i}" ${i==0?'disabled':''}>↑</button><button class="small" data-dn="${i}" ${i==state.order.length-1?'disabled':''}>↓</button></td>
       <td><span class="swatch" style="background:${col}"></span>${esc(c)}${n}</td>
       <td class="c"><input type="checkbox" data-inc="${esc(c)}" ${state.included[c]?'checked':''}></td>
-      ${sm?`<td class="c"><input type="checkbox" data-ser="${esc(c)}" ${state.series[c]?'checked':''} ${state.included[c]?'':'disabled'}></td>`:''}</tr>`;
+      ${sm?`<td class="c"><input type="checkbox" data-ser="${esc(c)}" ${state.series[c]?'checked':''} ${state.included[c]?'':'disabled'}></td>`:''}
+      <td><input type="text" data-lab="${esc(c)}" value="${esc(state.label[c]||'')}" style="padding:3px 5px"></td><td><input type="text" data-grp2="${esc(c)}" value="${esc(state.group[c]||'')}" style="padding:3px 5px"></td></tr>`;
   });
   if(sm)h+=`<tr><td></td><td class="hint">Quick select for series</td><td></td><td class="c"><button class="small" id="serAll">all</button></td></tr>`;
   t.innerHTML=h;
@@ -374,6 +534,8 @@ function renderCats(){
   t.querySelectorAll('[data-dn]').forEach(b=>b.onclick=()=>{const i=+b.dataset.dn;[state.order[i+1],state.order[i]]=[state.order[i],state.order[i+1]];renderCats()});
   t.querySelectorAll('[data-inc]').forEach(b=>b.onchange=()=>{state.included[b.dataset.inc]=b.checked;renderCats()});
   t.querySelectorAll('[data-ser]').forEach(b=>b.onchange=()=>{state.series[b.dataset.ser]=b.checked});
+  t.querySelectorAll('[data-lab]').forEach(b=>b.oninput=()=>{state.label[b.dataset.lab]=b.value});
+  t.querySelectorAll('[data-grp2]').forEach(b=>b.oninput=()=>{state.group[b.dataset.grp2]=b.value});
   const sa=$('serAll');if(sa)sa.onclick=()=>{const kw=$('apart').value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
     state.order.forEach(c=>{if(state.included[c])state.series[c]=kw.length?kw.some(k=>c.toLowerCase().includes(k)):true});renderCats()};
 }
@@ -398,6 +560,17 @@ function detailTable(rows,single){
   rows.forEach(p=>{h+=`<tr><td>${esc(p.a)}${single?'':' ↔ '+esc(p.b)}</td><td>${p.total}</td><td class="p">${p.pos}</td><td class="n">${p.neg}</td>${p.bands.map(b=>`<td class="p">${b.pos}</td><td class="n">${b.neg}</td>`).join('')}</tr>`});
   return h+'</table>';
 }
+function compareTable(d){
+  const T=d.times;
+  let h='<table class="t"><tr><th>Strength</th>'+T.map(t=>`<th colspan="3" style="text-align:center">${esc(t.name)}</th>`).join('')+'</tr>';
+  h+='<tr><th></th>'+T.map(()=>'<th>Total</th><th>+</th><th>−</th>').join('')+'</tr>';
+  d.counts.bands.forEach((b,k)=>{h+=`<tr><td>${esc(b.label)}</td>`+T.map(t=>{const x=t.counts.bands[k];return `<td>${x.total}</td><td class="p">${x.pos}</td><td class="n">${x.neg}</td>`}).join('')+'</tr>'});
+  h+='<tr class="tot"><td>All</td>'+T.map(t=>`<td>${t.counts.total}</td><td class="p">${t.counts.pos}</td><td class="n">${t.counts.neg}</td>`).join('')+'</tr></table>';
+  return h;
+}
+function compareKPIs(d){
+  return '<div class="kpis">'+d.times.map(t=>`<div class="kpi"><b>${t.counts.total}</b><span>${esc(t.name)} · <span style="color:var(--pos)">${t.counts.pos} +</span> / <span style="color:var(--neg)">${t.counts.neg} −</span></span></div>`).join('')+'</div>';
+}
 function removedLine(r){
   const parts=[`${r.read} correlations read`];
   if(r.within)parts.push(`${r.within} within the same category`);
@@ -413,11 +586,17 @@ function removedLine(r){
 $('go').onclick=async()=>{
   showErr('');
   const mode=radio('mode');
-  const req={
+  const cw=$('chordMode').value;
+  const rings=[['ringGroup','group'],['ringRegion','region'],['ringFile','file']].filter(x=>$(x[0]).checked).map(x=>x[1]);
+  const req=Object.assign(fileReq(),{
+    noRegion:$('noRegion').value.trim(),
+    style:{chordWidth:cw==='fixed'?String($('chordDeg').value):cw,labelSize:+$('labelSize').value||0,labelWrap:+$('labelWrap').value||0,
+      scale:$('scale').checked,segments:$('segments').value,rings,ringLabels:$('ringLabels').value,groupWord:$('groupWord').value.trim(),fileWord:$('fileWord').value.trim()},
     mode,
     series:state.order.filter(c=>state.series[c]&&state.included[c]),
     groups:state.groups.map(g=>g.name).filter(g=>state.groupOn[g]),
     groupLabel:gLabel(),
+    highlight:several()&&$('layout').value==='compare'?+$('highlight').value:0,
     seriesExcludeOthers:$('seriesApart').checked,
     prefix:$('prefix').value.trim(),
     options:Object.assign(baseOptions(),{
@@ -427,9 +606,11 @@ $('go').onclick=async()=>{
       order:state.order,
       title:$('title').value.trim(),
       withinGroup:mode==='single'&&varMode()&&state.groups.length>0&&$('withinGroup').checked,
-      cuts:{veryStrong:+$('cutVS').value,strong:+$('cutS').value,moderate:+$('cutM').value}
+      cuts:{veryStrong:+$('cutVS').value,strong:+$('cutS').value,moderate:+$('cutM').value},
+      catInfo:state.order.map(c=>({category:c,label:(state.label[c]||'').trim(),group:(state.group[c]||'').trim()}))
     })
-  };
+  });
+  if(several()&&!extra.length){showErr('Add the other Excel files, or choose "One Excel file".');return}
   const btn=$('go');btn.disabled=true;btn.textContent='Generating…';$('results').classList.add('busy');
   try{
     const j=await api('/api/generate',{method:'POST',body:JSON.stringify(req)});
@@ -440,11 +621,17 @@ $('go').onclick=async()=>{
 
 function renderResults(j){
   const R=$('results');const n=j.diagrams.length;
-  current=j;let h=`<div class="cite">${citeBox()}</div><div class="bar"><h2>${n>1?n+' diagrams':'Result'}</h2><span class="dl">${j.hasSummary?`<a href="#" data-dl="0" data-k="summary">Summary (xlsx)</a>`:''}<a href="#" data-all="1">Download all (zip)</a></span></div>`;
+  current=j;let h=`<div class="cite">${citeBox()}</div><div class="bar"><h2>${n>1?n+' diagrams':'Result'}</h2><span class="dl">${j.hasChanges?`<a href="#" data-dl="0" data-k="changes">Changes (xlsx)</a>`:''}${j.hasSummary?`<a href="#" data-dl="0" data-k="summary">Summary (xlsx)</a>`:''}<a href="#" data-all="1">Download all (zip)</a></span></div>`;
+  if(j.warnings&&j.warnings.length)h+=`<div class="panel" style="background:var(--warnbg);color:var(--warn)"><h2 style="color:var(--warn)">Notes on the input files</h2>${j.warnings.map(w=>`<div>${esc(w)}</div>`).join('')}</div>`;
+  if(j.chordWidth)h+=`<div class="hint" style="margin:-4px 0 10px">Chord width: ${j.chordWidth.toFixed(3)}° in every diagram.</div>`;
+  if(j.changes){const c=j.changes;h+=`<div class="panel"><h2>Changes from ${esc(c.Group1)} to ${esc(c.Group2)}</h2><div class="kpis"><div class="kpi pos"><b>${c.appeared}</b><span>Appeared</span></div><div class="kpi neg"><b>${c.disappeared}</b><span>Disappeared</span></div><div class="kpi"><b>${c.signPosNeg+c.signNegPos}</b><span>Sign change (+→− ${c.signPosNeg}, −→+ ${c.signNegPos})</span></div><div class="kpi"><b>${c.unchanged}</b><span>Unchanged</span></div></div><div class="hint">"Disappeared" only means no longer significant. Full list, sorted by strength, with one sheet per region: Changes (xlsx).${c.ok?'':' <b style="color:var(--warn)">Count check failed — please report.</b>'}</div></div>`}
   if(n>1){
     h+='<div class="panel"><h2>Overview</h2><div class="scroll" style="max-height:none;border:0"><table class="t"><tr><th>Diagram</th><th>Total</th><th>+</th><th>−</th>'+
       j.diagrams[0].counts.bands.map(b=>`<th>${esc(b.label.split(' (')[0])} +</th><th>${esc(b.label.split(' (')[0])} −</th>`).join('')+'</tr>';
-    j.diagrams.forEach(d=>{const c=d.counts;h+=`<tr><td>${esc(d.name)}</td><td>${c.total}</td><td class="p">${c.pos}</td><td class="n">${c.neg}</td>${c.bands.map(b=>`<td class="p">${b.pos}</td><td class="n">${b.neg}</td>`).join('')}</tr>`});
+    j.diagrams.forEach(d=>{
+      const rows=d.times?d.times.map(t=>({name:d.name+' · '+t.name,c:t.counts})):[{name:d.name,c:d.counts}];
+      rows.forEach(x=>{const c=x.c;h+=`<tr><td>${esc(x.name)}</td><td>${c.total}</td><td class="p">${c.pos}</td><td class="n">${c.neg}</td>${c.bands.map(b=>`<td class="p">${b.pos}</td><td class="n">${b.neg}</td>`).join('')}</tr>`});
+    });
     h+='</table></div></div>';
   }
   j.diagrams.forEach((d,i)=>{
@@ -452,11 +639,11 @@ function renderResults(j){
     h+=`<div class="card"><div class="top"><h3>${esc(d.name)}</h3><span class="dl">
       ${d.error?'':`<a href="#" data-dl="${i}" data-k="png">PNG</a><a href="#" data-dl="${i}" data-k="svg">SVG</a>`}<a href="#" data-dl="${i}" data-k="xlsx">Counts (xlsx)</a></span></div>
       <div class="body"><div>${d.error?`<div class="empty">${esc(d.error)}</div>`:`<img src="${prev}" alt="Chord diagram ${esc(d.name)}" data-big="${prev}">`}</div>
-      <div><div class="kpis"><div class="kpi"><b>${c.total}</b><span>Total</span></div><div class="kpi pos"><b>${c.pos}</b><span>Positive</span></div><div class="kpi neg"><b>${c.neg}</b><span>Negative</span></div></div>
-      ${bandsTable(c)}
+      <div>${d.times?compareKPIs(d)+compareTable(d):`<div class="kpis"><div class="kpi"><b>${c.total}</b><span>Total</span></div><div class="kpi pos"><b>${c.pos}</b><span>Positive</span></div><div class="kpi neg"><b>${c.neg}</b><span>Negative</span></div></div>
+      ${bandsTable(c)}`}
       <div class="removed">${esc(removedLine(c.removed))}</div>
-      ${c.pairs&&c.pairs.length?`<details><summary>Counts per category pair (${c.pairs.length})</summary><div class="scroll">${detailTable(c.pairs,false)}</div></details>`:''}
-      ${c.perCategory&&c.perCategory.length?`<details><summary>Counts per category</summary><div class="scroll">${detailTable(c.perCategory,true)}</div></details>`:''}
+      ${(d.times||[{name:'',counts:c}]).map(t=>{const x=t.counts;const tag=t.name?' · '+esc(t.name):'';return `${x.pairs&&x.pairs.length?`<details><summary>Counts per category pair${tag} (${x.pairs.length})</summary><div class="scroll">${detailTable(x.pairs,false)}</div></details>`:''}
+      ${x.perCategory&&x.perCategory.length?`<details><summary>Counts per category${tag}</summary><div class="scroll">${detailTable(x.perCategory,true)}</div></details>`:''}`}).join('')}
       </div></div></div>`;
   });
   R.innerHTML=h;

@@ -27,13 +27,13 @@ rep('<div class="overlay" id="overlay"><img id="big" alt=""></div>', '''<div cla
 <div id="boot"><div class="spin"></div><div id="bootMsg">Loading Chord Diagram Studio…</div></div>
 <footer>
   <p id="citeFoot"></p>
-  <p><b>Privacy:</b> files are processed locally in your browser with WebAssembly; nothing is uploaded. A desktop version for Mac, Windows and Linux is available from the <a href="https://github.com/YOUR-USERNAME/YOUR-REPOSITORY/releases" id="relLink">project's GitHub releases</a>.</p>
+  <p><b>Privacy:</b> files are processed locally in your browser with WebAssembly; nothing is uploaded. A desktop version for Mac, Windows and Linux is available from the <a href="https://github.com/voulvet/ChordDiagramStudio/releases" id="relLink">project's GitHub releases</a>.</p>
   <p><b>AI disclosure:</b> The source code of Chord Diagram Studio was generated with Claude (Anthropic), an AI assistant, based on the author's specifications. The author defined the requirements and design, and tested and validated the program's output against independent calculations. The program draws figures directly from the input data; it does not use AI to create or modify them.</p>
 </footer>
 <script src="wasm_exec.js"></script>''')
-rep("const PASTEL=[", """// ===== Citation: after Zenodo gives you the DOI, change only the next two lines =====
-const CITE_DOI='10.5281/zenodo.23602942';
-const CITE_VERSION='1.1.0';
+rep("const PASTEL=[", """// ===== Citation: concept DOI (always resolves to the latest version); update the version at each release =====
+const CITE_DOI='10.5281/zenodo.23602941';
+const CITE_VERSION='2.0.0';
 // ====================================================================================
 const CITE_TEXT=`Carretero-Hernandez M. Chord Diagram Studio (version ${CITE_VERSION}) [Software]. Zenodo. https://doi.org/${CITE_DOI}`;
 function citeBox(){return `<div><p><b>Using these diagrams in a publication or presentation? Please cite Chord Diagram Studio:</b></p><p class="ref">${CITE_TEXT.replace(/(https:\\/\\/doi\\.org\\/\\S+)/,'<a href="$1" target="_blank" rel="noopener">$1</a>')}</p></div><button class="small" data-copycite>Copy citation</button>`}
@@ -46,19 +46,24 @@ function parse(x){const j=JSON.parse(x);if(j.error)throw new Error(j.error);retu
 let fileBytes=null,fileName='';
 async function api(url,opts){
   await tick();
-  if(url==='/api/load'){const fd=opts.body;const f=fd.get('file');
-    if(f){fileBytes=new Uint8Array(await f.arrayBuffer());fileName=f.name;return parse(chordLoad(fileBytes,fileName,'',''))}
-    return parse(chordLoad(null,'',fd.get('rsheet'),fd.get('psheet')))}
+  if(url==='/api/load'){const fd=opts.body;const slot=+(fd.get('slot')||0);
+    if(fd.get('remove')==='all')return parse(chordRemove(-1));
+    if(fd.get('remove')==='1')return parse(chordRemove(slot));
+    const f=fd.get('file');
+    if(f){fileBytes=new Uint8Array(await f.arrayBuffer());fileName=f.name;return parse(chordLoad(slot,fileBytes,fileName,'',''))}
+    return parse(chordLoad(0,null,'',fd.get('rsheet')||'',fd.get('psheet')||''))}
+  if(url==='/api/catsheet'){const f=opts.body.get('file');return parse(chordCatSheet(new Uint8Array(await f.arrayBuffer())))}
   if(url==='/api/categories')return parse(chordCategories(opts.body));
   if(url==='/api/generate')return parse(chordGenerate(opts.body));
   throw new Error('unknown '+url)}
 function blobURL(i,kind){const b=chordFile(i,kind);if(!b)return null;
-  const t={png:'image/png',svg:'image/svg+xml',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',summary:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}[kind];
+  const x='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const t={png:'image/png',svg:'image/svg+xml',xlsx:x,summary:x,changes:x}[kind];
   return URL.createObjectURL(new Blob([b],{type:t}))}
 function save(url,name){const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),4000)}
 let current=null;
 async function download(i,kind){
-  if(kind==='summary'){const u=blobURL(0,'summary');if(u)save(u,current.prefix+'_summary.xlsx');return}
+  if(kind==='summary'||kind==='changes'){const u=blobURL(0,kind);if(u)save(u,current.prefix+'_'+kind+'.xlsx');return}
   const d=current.diagrams[i];
   if(kind==='png'){status('Rendering 300 dpi PNG for '+d.name+'…');await tick()}
   try{const u=blobURL(i,kind);if(u)save(u,d.file+(kind==='xlsx'?'_counts.xlsx':'.'+kind))}finally{status('')}
@@ -73,6 +78,7 @@ async function downloadAll(){
 # results: links become JS handlers
 rep('<a href="/api/zip?job=${j.job}">Download all (zip)</a>', '<a href="#" data-all="1">Download all (zip)</a>')
 rep('<a href="/api/file?job=${j.job}&kind=summary">Summary (xlsx)</a>', '<a href="#" data-dl="0" data-k="summary">Summary (xlsx)</a>')
+rep('<a href="/api/file?job=${j.job}&kind=changes">Changes (xlsx)</a>', '<a href="#" data-dl="0" data-k="changes">Changes (xlsx)</a>')
 rep("const c=d.counts;const base=`/api/file?job=${j.job}&i=${i}`;", "const c=d.counts;const prev=d.error?null:blobURL(i,'svg');")
 rep('${d.error?\'\':`<a href="${base}&kind=png&dl=1">PNG</a><a href="${base}&kind=svg&dl=1">SVG</a>`}<a href="${base}&kind=xlsx&dl=1">Counts (xlsx)</a>',
     '${d.error?\'\':`<a href="#" data-dl="${i}" data-k="png">PNG</a><a href="#" data-dl="${i}" data-k="svg">SVG</a>`}<a href="#" data-dl="${i}" data-k="xlsx">Counts (xlsx)</a>')
