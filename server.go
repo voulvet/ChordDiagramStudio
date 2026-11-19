@@ -73,23 +73,6 @@ func (s *server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.sess.Info())
 }
 
-// /api/catsheet: read the "Categories" sheet of an Excel file.
-func (s *server) handleCatSheet(w http.ResponseWriter, r *http.Request) {
-	f, _, err := r.FormFile("file")
-	if err != nil {
-		fail(w, "Choose an Excel file.")
-		return
-	}
-	b, _ := io.ReadAll(f)
-	f.Close()
-	c, err := LoadCategories(b)
-	if err != nil {
-		fail(w, err.Error())
-		return
-	}
-	writeJSON(w, map[string]any{"catSheet": c})
-}
-
 func (s *server) handleCategories(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,9 +168,6 @@ func (s *server) handleZip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := run.Prefix + "_all.zip"
-	if len(run.Diagrams) > 1 {
-		name = run.Prefix + "_series_all.zip"
-	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
 	w.Write(ZipRun(run))
@@ -214,7 +194,6 @@ func runServer(port int, noBrowser bool) {
 		w.Write(uiHTML)
 	})
 	mux.HandleFunc("/api/load", s.handleLoad)
-	mux.HandleFunc("/api/catsheet", s.handleCatSheet)
 	mux.HandleFunc("/api/categories", s.handleCategories)
 	mux.HandleFunc("/api/generate", s.handleGenerate)
 	mux.HandleFunc("/api/file", s.handleFile)

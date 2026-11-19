@@ -23,7 +23,7 @@ type candPair struct {
 }
 
 // candidatePairs: every correlation between different categories that passes
-// the category filters (exclude, combine, keep apart), significant or not.
+// the category filter (exclude), significant or not, in any strength band.
 func (ds *Dataset) candidatePairs(o *Options) []candPair {
 	excl := map[string]bool{}
 	for _, e := range o.Exclude {
@@ -55,8 +55,8 @@ func (ds *Dataset) candidatePairs(o *Options) []candPair {
 			if a0 == "" || b0 == "" {
 				continue
 			}
-			a, b := o.mapCat(a0), o.mapCat(b0)
-			if excl[a] || excl[b] || a == b || sameApartGroup(a, b, o.Apart) {
+			a, b := a0, b0
+			if excl[a] || excl[b] || a == b {
 				continue
 			}
 			p, okp := parseNum(ps)
@@ -115,7 +115,7 @@ type pairVal struct {
 // ComputeChanges builds the change list and the workbook.
 func ComputeChanges(in changeInput) (*ChangeSummary, []byte) {
 	o := in.opt
-	o.Focus, o.Group, o.WithinGroup = "", "", false
+	o.Group, o.WithinGroup = "", false
 	vals := [2]map[string]*pairVal{{}, {}}
 	var keys []string
 	seen := map[string]bool{}

@@ -33,7 +33,7 @@ rep('<div class="overlay" id="overlay"><img id="big" alt=""></div>', '''<div cla
 <script src="wasm_exec.js"></script>''')
 rep("const PASTEL=[", """// ===== Citation: concept DOI (always resolves to the latest version); update the version at each release =====
 const CITE_DOI='10.5281/zenodo.23602941';
-const CITE_VERSION='2.0.0';
+const CITE_VERSION='3.0.0';
 // ====================================================================================
 const CITE_TEXT=`Carretero-Hernandez M. Chord Diagram Studio (version ${CITE_VERSION}) [Software]. Zenodo. https://doi.org/${CITE_DOI}`;
 function citeBox(){return `<div><p><b>Using these diagrams in a publication or presentation? Please cite Chord Diagram Studio:</b></p><p class="ref">${CITE_TEXT.replace(/(https:\\/\\/doi\\.org\\/\\S+)/,'<a href="$1" target="_blank" rel="noopener">$1</a>')}</p></div><button class="small" data-copycite>Copy citation</button>`}
@@ -52,7 +52,6 @@ async function api(url,opts){
     const f=fd.get('file');
     if(f){fileBytes=new Uint8Array(await f.arrayBuffer());fileName=f.name;return parse(chordLoad(slot,fileBytes,fileName,'',''))}
     return parse(chordLoad(0,null,'',fd.get('rsheet')||'',fd.get('psheet')||''))}
-  if(url==='/api/catsheet'){const f=opts.body.get('file');return parse(chordCatSheet(new Uint8Array(await f.arrayBuffer())))}
   if(url==='/api/categories')return parse(chordCategories(opts.body));
   if(url==='/api/generate')return parse(chordGenerate(opts.body));
   throw new Error('unknown '+url)}
@@ -72,7 +71,7 @@ async function downloadAll(){
   const n=current.diagrams.length;
   for(let i=0;i<n;i++){if(current.diagrams[i].error)continue;status(`Rendering PNG ${i+1} of ${n}…`);await tick();chordFile(i,'png')}
   status('Packing zip…');await tick();
-  const b=chordZip();const pre=current.prefix+(current.diagrams.length>1?'_series':'');
+  const b=chordZip();const pre=current.prefix;
   save(URL.createObjectURL(new Blob([b],{type:'application/zip'})),pre+'_all.zip');status('')
 }""")
 # results: links become JS handlers

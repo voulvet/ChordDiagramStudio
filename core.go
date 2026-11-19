@@ -251,38 +251,14 @@ func readCatSheet(f *excelize.File, rSheet, pSheet string) []CatInfo {
 	return out
 }
 
-// LoadCategories reads only the "Categories" sheet of a workbook (e.g. a
-// separate categories file).
-func LoadCategories(b []byte) ([]CatInfo, error) {
-	b, _ = repairSheetNames(b)
-	f, err := excelize.OpenReader(bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("could not open the categories file: %v", err)
-	}
-	defer f.Close()
-	c := readCatSheet(f, "", "")
-	if len(c) == 0 {
-		return nil, fmt.Errorf("no sheet called \"Categories\" with a column \"Category\" was found")
-	}
-	return c, nil
-}
-
 // ---------------- filtering ----------------
 
-type MergeRule struct {
-	Keyword string `json:"keyword"`
-	Name    string `json:"name"`
-}
-
 type Options struct {
-	Alpha   float64     `json:"alpha"`
-	Exclude []string    `json:"exclude"` // category names (after merging) to leave out
-	Merge   []MergeRule `json:"merge"`   // categories containing keyword become one category
-	Apart   []string    `json:"apart"`   // keywords: categories containing the same keyword are not compared
-	Order   []string    `json:"order"`   // ring order (after merging)
-	Title   string      `json:"title"`
-	Focus   string      `json:"-"` // only links touching this category (series mode)
-	Cuts    Cuts        `json:"cuts"`
+	Alpha    float64  `json:"alpha"`
+	Exclude  []string `json:"exclude"`  // category names to leave out
+	Order    []string `json:"order"`    // ring order
+	Strength []string `json:"strength"` // strength bands drawn: "very strong", "strong", "moderate", "weak" (empty = all)
+	Cuts     Cuts     `json:"-"`        // fixed: very strong ≥ 0.80, strong ≥ 0.60, moderate ≥ 0.40
 
 	// Variable-name mode
 	Header      string `json:"header"`      // "category" (default): headers are categories; "variable": headers are variable names
@@ -295,7 +271,104 @@ type Options struct {
 	CatInfo []CatInfo `json:"catInfo"` // ring label and group per category (Categories sheet or table)
 }
 
-// catMaps returns label and group per category (after merging).
+// fixedCuts are the strength bands of |r| (not adjustable).
+var fixedCuts = Cuts{0.8, 0.6, 0.4}
+
+var bandNames = []string{"very strong", "strong", "moderate", "weak"}
+
+// bandOn reports which strength bands are drawn (all when none are chosen).
+func (o *Options) bandOn() [4]bool {
+	var on [4]bool
+	if len(o.Strength) == 0 {
+		return [4]bool{true, true, true, true}
+	}
+	for _, s := range o.Strength {
+		k := strings.ToLower(strings.Join(strings.Fields(strings.ReplaceAll(s, "-", " ")), " "))
+		for i, n := range bandNames {
+			if k == n || k == strings.ReplaceAll(n, " ", "") {
+				on[i] = true
+			}
+		}
+	}
+	return on
+}
+
+// validStrength checks the band names given by the user.
+func validStrength(list []string) error {
+	o := Options{Strength: list}
+	on := o.bandOn()
+	n := 0
+	for _, x := range on {
+		if x {
+			n++
+		}
+	}
+	if len(list) > 0 && n == 0 {
+		return fmt.Errorf("strength: choose one or more of: very strong, strong, moderate, weak")
+	}
+	for _, s := range list {
+		ok := false
+		for _, b := range bandNames {
+			if (&Options{Strength: []string{s}}).bandOn() == (&Options{Strength: []string{b}}).bandOn() {
+				ok = true
+			}
+		}
+		if !ok {
+			return fmt.Errorf("strength: unknown band %q (very strong, strong, moderate, weak)", s)
+		}
+	}
+	return nil
+}
+
+// strengthNote describes the bands drawn ("" when all are drawn), e.g.
+// "strong and very strong correlations, |r| ≥ 0.60".
+func (o *Options) strengthNote() string {
+	on := o.bandOn()
+	if on == [4]bool{true, true, true, true} {
+		return ""
+	}
+	var names []string
+	for i := 3; i >= 0; i-- {
+		if on[i] {
+			names = append(names, bandNames[i])
+		}
+	}
+	txt := names[0]
+	if len(names) > 1 {
+		txt = strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+	txt += " correlations"
+	c := fixedCuts
+	lim := []float64{c.VeryStrong, c.Strong, c.Moderate}
+	// a contiguous range of bands also gets the |r| limits
+	first, last := -1, -1
+	for i := 0; i < 4; i++ {
+		if on[i] {
+			if first < 0 {
+				first = i
+			}
+			last = i
+		}
+	}
+	contiguous := true
+	for i := first; i <= last; i++ {
+		contiguous = contiguous && on[i]
+	}
+	f := func(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
+	if contiguous {
+		switch {
+		case first == 0 && last < 3:
+			txt += ", |r| ≥ " + f(lim[last])
+		case first > 0 && last == 3:
+			txt += ", |r| < " + f(lim[first-1])
+		case first > 0:
+			txt += ", " + f(lim[last]) + " ≤ |r| < " + f(lim[first-1])
+		}
+	}
+	return txt
+}
+
+// catMaps returns label and group per category.
 func (o *Options) catMaps() (map[string]string, map[string]string) {
 	lab, grp := map[string]string{}, map[string]string{}
 	for _, c := range o.CatInfo {
@@ -333,28 +406,13 @@ type Removed struct {
 	Read       int `json:"read"`
 	Within     int `json:"within"`
 	Excluded   int `json:"excluded"`
-	Apart      int `json:"apart"`
 	NotSig     int `json:"notSignificant"`
 	NoP        int `json:"missingP"`
-	OutOfFocus int `json:"outOfFocus"`
 	OtherGroup int `json:"otherGroup"`
+	Strength   int `json:"strength"` // significant, but in a strength band that is not drawn
 }
 
-func (o *Options) mapCat(c string) string {
-	lc := strings.ToLower(c)
-	for _, m := range o.Merge {
-		k := strings.ToLower(strings.TrimSpace(m.Keyword))
-		if k != "" && strings.Contains(lc, k) {
-			if strings.TrimSpace(m.Name) != "" {
-				return clean(m.Name)
-			}
-			return clean(m.Keyword)
-		}
-	}
-	return c
-}
-
-// MergedCategories returns the category list after merge rules (appearance order).
+// MergedCategories returns the category list (appearance order).
 func (ds *Dataset) MergedCategories(o *Options) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -363,7 +421,7 @@ func (ds *Dataset) MergedCategories(o *Options) []string {
 		if c == "" {
 			continue
 		}
-		m := o.mapCat(c)
+		m := c
 		if !seen[m] {
 			seen[m] = true
 			out = append(out, m)
@@ -372,19 +430,9 @@ func (ds *Dataset) MergedCategories(o *Options) []string {
 	return out
 }
 
-func sameApartGroup(a, b string, apart []string) bool {
-	la, lb := strings.ToLower(a), strings.ToLower(b)
-	for _, k := range apart {
-		k = strings.ToLower(strings.TrimSpace(k))
-		if k != "" && strings.Contains(la, k) && strings.Contains(lb, k) {
-			return true
-		}
-	}
-	return false
-}
-
 // Compute applies all filters and returns the links plus the full ring order.
 func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
+	bands := o.bandOn()
 	var rm Removed
 	excl := map[string]bool{}
 	for _, e := range o.Exclude {
@@ -423,21 +471,13 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 				continue
 			}
 			rm.Read++
-			a, b := o.mapCat(a0), o.mapCat(b0)
+			a, b := a0, b0
 			if excl[a] || excl[b] {
 				rm.Excluded++
 				continue
 			}
 			if a == b {
 				rm.Within++
-				continue
-			}
-			if sameApartGroup(a, b, o.Apart) {
-				rm.Apart++
-				continue
-			}
-			if o.Focus != "" && a != o.Focus && b != o.Focus {
-				rm.OutOfFocus++
 				continue
 			}
 			if !o.groupOK(ga, gb) {
@@ -451,6 +491,10 @@ func (ds *Dataset) Compute(o *Options) ([]Link, []string, Removed) {
 			}
 			if p > o.Alpha {
 				rm.NotSig++
+				continue
+			}
+			if !bands[bandOf(r, fixedCuts)] {
+				rm.Strength++
 				continue
 			}
 			raws = append(raws, raw{a, b, r, p, va, vb, ga, gb})
@@ -624,10 +668,10 @@ func CountsXLSX(cn Counts, links []Link, cuts Cuts, segs *segTable, warnings []s
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+2), &[]any{"Correlations read", rm.Read})
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+3), &[]any{"Removed: within category", rm.Within})
 	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+4), &[]any{"Removed: excluded categories", rm.Excluded})
-	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+5), &[]any{"Removed: kept-apart categories", rm.Apart})
-	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+6), &[]any{"Removed: not in this diagram (series)", rm.OutOfFocus + rm.OtherGroup})
-	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+7), &[]any{"Removed: not significant", rm.NotSig})
-	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+8), &[]any{"Removed: missing p-value", rm.NoP})
+	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+5), &[]any{"Removed: outside this region or across regions", rm.OtherGroup})
+	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+6), &[]any{"Removed: not significant", rm.NotSig})
+	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+7), &[]any{"Removed: missing p-value", rm.NoP})
+	x.SetSheetRow(sh, fmt.Sprintf("A%d", n+8), &[]any{"Removed: significant, strength band not drawn", rm.Strength})
 	x.SetColWidth(sh, "A", "A", 40)
 
 	hdr := []any{"Category 1", "Category 2", "Total", "Positive", "Negative"}

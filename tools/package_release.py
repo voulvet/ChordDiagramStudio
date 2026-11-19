@@ -82,31 +82,28 @@ BODY = '''USING IT
   Regions       (variable names only) Rename the grouping, e.g. "Region".
                 Variables without a region (e.g. whole-joint scores) can be
                 included in every region or left out, and get a name.
-  Combine       "Combine categories": every category containing a keyword
-                (e.g. "day") becomes one category with the name you give.
-                "Keep apart": categories containing the keyword are not
-                compared with each other.
   Categories    Untick a category to exclude it. Arrows change the order
                 around the ring. Each category keeps its colour. Label and
                 Group can be typed in or read from a "Categories" sheet.
-  Diagrams      "One diagram", "One per category", or "One per region"
-                (only correlations between variables of the same region).
-                In "One diagram" you can also keep only correlations within
-                the same region.
+  Diagrams      "One diagram" or "One per region" (only correlations
+                between variables of the same region). In "One diagram" you
+                can also keep only correlations within the same region.
+                Titles and file names are made automatically.
   Appearance    Chord thickness: automatic, the same in every diagram of
                 the run (widest that fits), or a fixed width in degrees.
                 Label size and characters per line. Count scale on the
                 rings. Segment sizes (equal or proportional). Extra rings
                 for the category group, region and file. Names inside the
                 rings (curved) or outside with leader lines.
-  Strength      Cut-offs for very strong / strong / moderate (|r|, positive
-                or negative). Default 0.80 / 0.60 / 0.40; below = weak.
+  Strength      Tick the strength categories to include in the diagram:
+                very strong (|r| >= 0.80), strong (0.60-0.80), moderate
+                (0.40-0.60), weak (< 0.40). The title says which are shown.
 
   Press Generate. For every diagram you see the figure plus counts:
   total, positive, negative, and per strength category; per category pair
   and per category tables are under "Counts per ...".
   Download PNG (300 dpi), SVG (vector) and an Excel file with all counts
-  and a list of every correlation drawn. Series, per-region runs and runs
+  and a list of every correlation drawn. Per-region runs and runs
   with several groups also give a Summary workbook comparing the diagrams.
   With two groups, "Changes (xlsx)" lists the correlations that appeared,
   disappeared or changed sign, sorted by strength, with one sheet per
@@ -126,9 +123,7 @@ ALWAYS APPLIED
 COMMAND LINE (optional)
   {cmdintro}
       {p}                      opens the interface
-      {p} -apart day data.xlsx
-      {p} -merge "day=Pain scoring" data.xlsx
-      {p} -series "Day 1 ...,Day 2 ..." -apart day data.xlsx
+      {p} -strength "very strong,strong" data.xlsx
       {p} -exclude "Biochemistry" -alpha 0.01 data.xlsx
       {p} -bygroup all -exclude "Biochemistry" data.xlsx
       {p} -compare oa.xlsx -timenames "Control,OA" control.xlsx
@@ -137,7 +132,9 @@ COMMAND LINE (optional)
           -filelabels "Study A,Study B,Study A,Study B" -layout ring
           -scale -rings group -groupword tissue -chordwidth same
           a_control.xlsx b_control.xlsx a_oa.xlsx b_oa.xlsx
-      (options go before the file names; run with -h to see all options)
+      (options go before the file names; output files go next to the
+      first file or into the folder given with -out; run with -h to see
+      all options)
 
   Examples (synthetic data): example_matrices.xlsx (category names),
   example_variables_regions.xlsx (variable names with regions),

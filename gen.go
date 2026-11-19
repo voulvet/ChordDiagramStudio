@@ -42,16 +42,13 @@ type segTable struct {
 }
 
 type GenerateReq struct {
-	Options     Options  `json:"options"`
-	Mode        string   `json:"mode"` // "single", "series" (one per category) or "groups" (one per region/group)
-	Series      []string `json:"series"`
-	Groups      []string `json:"groups"`
-	GroupLabel  string   `json:"groupLabel"` // e.g. "Region"
-	Compare     bool     `json:"compare"`    // use the other loaded files (several files)
-	TimeNames   []string `json:"timeNames"`  // group names of the files (older name; see FileGroups)
-	Highlight   int      `json:"highlight"`  // comparison: k = draw group k in full colour, the others toned down; 0 = all in full colour
-	SeriesApart bool     `json:"seriesExcludeOthers"`
-	Prefix      string   `json:"prefix"`
+	Options    Options  `json:"options"`
+	Mode       string   `json:"mode"` // "single" or "groups" (one per region/group)
+	Groups     []string `json:"groups"`
+	GroupLabel string   `json:"groupLabel"` // e.g. "Region"
+	Compare    bool     `json:"compare"`    // use the other loaded files (several files)
+	TimeNames  []string `json:"timeNames"`  // group names of the files (older name; see FileGroups)
+	Highlight  int      `json:"highlight"`  // comparison: k = draw group k in full colour, the others toned down; 0 = all in full colour
 
 	Style      Style    `json:"style"`
 	Layout     string   `json:"layout"`     // several files: "compare" (groups on the right), "ring" (one full ring per group) or "split" (one per group, files on the right)
@@ -90,13 +87,9 @@ func baseName(fileName string) string {
 	return base
 }
 
-// ResolvePrefix returns the output file-name prefix.
-func ResolvePrefix(req GenerateReq, fileName string) string {
-	prefix := fileSafe(req.Prefix)
-	if prefix == "" {
-		prefix = fileSafe(baseName(fileName)) + "_chord"
-	}
-	return prefix
+// ResolvePrefix returns the output file-name prefix (from the file name).
+func ResolvePrefix(fileName string) string {
+	return fileSafe(baseName(fileName)) + "_chord"
 }
 
 // Source is one Excel file. Name = its group (files of the same group are
@@ -159,8 +152,9 @@ func Generate(srcs []Source, req GenerateReq, raster bool) (*Run, error) {
 	if o.Alpha <= 0 {
 		o.Alpha = 0.05
 	}
-	if o.Cuts.VeryStrong == 0 {
-		o.Cuts = Cuts{0.8, 0.6, 0.4}
+	o.Cuts = fixedCuts
+	if err := validStrength(o.Strength); err != nil {
+		return nil, err
 	}
 	st := req.Style
 	fixedDeg, same, err := st.fixedWidth()
@@ -322,10 +316,9 @@ func Generate(srcs []Source, req GenerateReq, raster bool) (*Run, error) {
 			r.Read += rm.Read
 			r.Within += rm.Within
 			r.Excluded += rm.Excluded
-			r.Apart += rm.Apart
+			r.Strength += rm.Strength
 			r.NotSig += rm.NotSig
 			r.NoP += rm.NoP
-			r.OutOfFocus += rm.OutOfFocus
 			r.OtherGroup += rm.OtherGroup
 			rmG[s.Name] = r
 		}
@@ -348,10 +341,9 @@ func Generate(srcs []Source, req GenerateReq, raster bool) (*Run, error) {
 				rmAll.Read += rm.Read
 				rmAll.Within += rm.Within
 				rmAll.Excluded += rm.Excluded
-				rmAll.Apart += rm.Apart
+				rmAll.Strength += rm.Strength
 				rmAll.NotSig += rm.NotSig
 				rmAll.NoP += rm.NoP
-				rmAll.OutOfFocus += rm.OutOfFocus
 				rmAll.OtherGroup += rm.OtherGroup
 			}
 			d.times, d.links = times, all
@@ -471,14 +463,18 @@ func Generate(srcs []Source, req GenerateReq, raster bool) (*Run, error) {
 		}
 	}
 
-	title := strings.TrimSpace(o.Title)
+	// titles are automatic; a note says which strength bands are drawn
+	note := o.strengthNote()
+	withNote := func(t string) string {
+		if note == "" {
+			return t
+		}
+		return t + " (" + note + ")"
+	}
 	switch req.Mode {
 	case "groups":
 		if len(req.Groups) == 0 {
 			return nil, fmt.Errorf("Tick at least one %s for the diagrams.", strings.ToLower(label))
-		}
-		if title == "" {
-			title = label + " {group}: significant correlations between variable categories"
 		}
 		dropLabel := false
 		for _, g := range req.Groups {
@@ -493,40 +489,14 @@ func Generate(srcs []Source, req GenerateReq, raster bool) (*Run, error) {
 			if dropLabel { // group names already say what they are, e.g. "top region"
 				gname = strings.ToUpper(g[:1]) + g[1:]
 			}
-			t := strings.ReplaceAll(strings.ReplaceAll(title, "{group}", g), "{category}", g)
-			if strings.HasPrefix(title, label+" {group}") && gname != label+" "+g {
-				t = gname + strings.TrimPrefix(strings.ReplaceAll(title, "{category}", g), label+" {group}")
-			}
-			make1(gname, prefix+"_"+fileSafe(gname), t, opt, g)
-		}
-	case "series":
-		if len(req.Series) == 0 {
-			return nil, fmt.Errorf("Tick at least one category for the series.")
-		}
-		if title == "" {
-			title = "{category}: significant correlations"
-		}
-		for _, cat := range req.Series {
-			opt := o
-			opt.Focus = cat
-			opt.Exclude = append([]string{}, o.Exclude...)
-			if req.SeriesApart {
-				for _, other := range req.Series {
-					if other != cat {
-						opt.Exclude = append(opt.Exclude, other)
-					}
-				}
-			}
-			make1(cat, prefix+"_"+fileSafe(cat), strings.ReplaceAll(title, "{category}", cat), opt, "")
+			make1(gname, prefix+"_"+fileSafe(gname), withNote(gname+": significant correlations between variable categories"), opt, g)
 		}
 	default:
-		if title == "" {
-			title = "Significant correlations between variable categories"
-			if layout == "compare" {
-				title = "Significant correlations between variable categories: comparison of groups"
-			}
+		title := "Significant correlations between variable categories"
+		if layout == "compare" {
+			title = "Significant correlations between variable categories: comparison of groups"
 		}
-		make1("All categories", prefix, strings.ReplaceAll(title, "{category}", "All categories"), o, "")
+		make1("All categories", prefix, withNote(title), o, "")
 	}
 
 	// chord width: automatic, fixed, or the widest that fits every diagram of the run
@@ -787,10 +757,10 @@ func ZipRun(run *Run) []byte {
 
 // PrefixFor returns the output prefix for one file or several files.
 func PrefixFor(srcs []Source, req GenerateReq) string {
-	if len(srcs) > 1 && strings.TrimSpace(req.Prefix) == "" {
-		return ResolvePrefix(GenerateReq{}, srcs[0].FileName) + "_groups"
+	if len(srcs) > 1 {
+		return ResolvePrefix(srcs[0].FileName) + "_groups"
 	}
-	return ResolvePrefix(req, srcs[0].FileName)
+	return ResolvePrefix(srcs[0].FileName)
 }
 
 // LabelCheck reports whether two files contain the same variables.

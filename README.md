@@ -2,7 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/1428772029.svg)](https://doi.org/10.5281/zenodo.23602941)
 
-Chord Diagram Studio turns Spearman correlation and p-value matrices from Excel into publication-ready chord diagrams. It shows only significant correlations between variable categories, and lets you exclude, combine or keep apart categories, build a series of diagrams, compare groups or time-points, combine several files (e.g. studies) in one diagram, add rings for category groups, regions and files, and count correlations by sign and strength.
+Chord Diagram Studio turns Spearman correlation and p-value matrices from Excel into publication-ready chord diagrams. It shows only significant correlations between variable categories, and lets you exclude categories, choose which strength categories to draw, compare groups or time-points, combine several files (e.g. studies) in one diagram, add rings for category groups, regions and files, and count correlations by sign and strength.
 
 **Use it online:** https://voulvet.github.io/ChordDiagramStudio/
 Files are processed locally in your browser; nothing is uploaded.
@@ -31,12 +31,12 @@ Optional sheet **Categories** with the columns `Category`, `Label` and `Group`:
 | Cartilage biomechanics | Biomechanics | Articular cartilage |
 | Subchondral bone microstructure | Microstructure | Subchondral bone |
 
-- `Category`: the category name as the program sees it (after combining).
+- `Category`: the category name as the program sees it.
 - `Label`: a short name shown inside the ring (optional; otherwise the category name).
 - `Group`: a higher level drawn as an outer ring, e.g. the tissue (optional).
 - The row order is the ring order (and so the colours), unless you change the order yourself.
 
-The sheet can be in the data file or in a separate file (website and desktop: "Read labels and groups from a Categories sheet in another file"; command line: `-categories file.xlsx`). Labels and groups can also be typed into the category table. The example files `example/example_studyA_*.xlsx` contain both a Variables and a Categories sheet.
+The sheet is read from the data file (with several files, from the first file that has one). Labels and groups can also be typed into the category table. The example files `example/example_studyA_*.xlsx` contain both a Variables and a Categories sheet.
 
 ### Several Excel files
 
@@ -54,7 +54,7 @@ Layouts for several files:
 
 **Regions with the same code in different files** are kept **separate** by default (region AC of Study A is not region AC of Study B; the region is then called "Study A AC"), or can be **combined** (same code = same region).
 
-All other options (exclude, combine, keep apart, regions, series) apply to every file, and every count is given per group.
+All other options (exclude, regions, strength) apply to every file, and every count is given per group.
 
 Example files: `example/example_timepoint_1.xlsx` and `example/example_timepoint_2.xlsx` (one study, two time-points), and `example/example_studyA_control.xlsx`, `example_studyA_oa.xlsx`, `example_studyB_control.xlsx`, `example_studyB_oa.xlsx` (two studies × two groups). All example data are synthetic (made with `tools/make_examples.py`); they do not come from any study.
 
@@ -68,20 +68,18 @@ Example files: `example/example_timepoint_1.xlsx` and `example/example_timepoint
 ## Options
 
 - **Exclude** categories
-- **Combine** all categories containing a keyword into one category
-- **Keep apart**: no comparisons between categories sharing a keyword (e.g. "day")
 - **Ring order** and fixed colours per category
-- **One diagram per category** (series)
 - **One diagram per region**: only correlations between variables of the same region; variables without a region (e.g. whole-joint scores) can be included in every region or left out. Their name in rings and tables can be set (default "No region").
 - **Only correlations within the same region** in a single diagram
 - **Several files**: compare groups, combine files, layouts and regions as described above; optionally **highlight** one group
-- **Strength categories** (|r|): very strong ≥ 0.80, strong ≥ 0.60, moderate ≥ 0.40, weak below (adjustable)
+- **Strength categories** (|r|, positive or negative): very strong ≥ 0.80, strong 0.60 – < 0.80, moderate 0.40 – < 0.60, weak < 0.40 (fixed cut-offs). Tick the categories to include in the diagram (default: all). The diagram, its counts and its tables then contain only the ticked categories, and the title says which ones are shown (e.g. "strong and very strong correlations, |r| ≥ 0.60"). The changes workbook always lists every significant change, with its strength category, so it can be filtered there.
+- Titles and file names are made automatically from the Excel file name and the settings.
 
 ### Appearance
 
 - **Chord thickness**
   - *Automatic* (default): the chords of a category fill its ring segment, so their thickness depends on the number of correlations.
-  - *Same in every diagram of this run*: every chord has the same width in every diagram that is made together (a series, one per region, both groups). The program uses the widest chord that fits the busiest diagram; where there is more room, chords keep this width and are spaced further apart. The width used is shown with the results and in the summary workbook.
+  - *Same in every diagram of this run*: every chord has the same width in every diagram that is made together (one per region, several groups). The program uses the widest chord that fits the busiest diagram; where there is more room, chords keep this width and are spaced further apart. The width used is shown with the results and in the summary workbook.
   - *Fixed*: a width in degrees (e.g. 0.2). Ring segments stay equal unless a category needs more room; then that segment grows and the others share the rest. If the chords do not fit, the program says which width would fit.
 - **Label size** of the category names (pt) and **characters per line**. Automatic: 12 pt with 30 characters per line in the full circle, 21 pt with 20 characters in the comparison layouts. Leader lines always stay outside the ring: a label that had to move away from its segment gets a leader that goes out horizontally, then vertically, and leaders never cross.
 - **Count scale on the rings**: a scale on every segment counting its chords from 0 at its clockwise start, with a tick every 5 chords and a number every 25 (every 5 in segments with fewer than 25 chords). With the scale, segments are proportional to the number of chords.
@@ -93,7 +91,7 @@ Example files: `example/example_timepoint_1.xlsx` and `example/example_timepoint
 
 ## Outputs
 
-PNG (300 dpi), SVG (vector) and an Excel file with counts in total, by sign, by strength, per category pair, per category, and a list of every correlation drawn (variable names, categories, r, p, sign, strength, and the regions and file of the two variables). With the scale or extra rings, a sheet lists the chord ends per ring segment. Series, per-region runs and runs with several groups also produce a summary workbook comparing all diagrams. In a comparison, every sheet has a column for the group.
+PNG (300 dpi), SVG (vector) and an Excel file with counts in total, by sign, by strength, per category pair, per category, and a list of every correlation drawn (variable names, categories, r, p, sign, strength, and the regions and file of the two variables). With the scale or extra rings, a sheet lists the chord ends per ring segment. Per-region runs and runs with several groups also produce a summary workbook comparing all diagrams. In a comparison, every sheet has a column for the group.
 
 ### Changes between two groups
 
@@ -122,13 +120,16 @@ The desktop program also runs from a terminal, for example:
 
 ```
 ./chordstudio -exclude "Immunohistochemistry,Biochemistry" -bygroup all data.xlsx
-./chordstudio -apart day data.xlsx
+./chordstudio -strength "very strong,strong" data.xlsx
 ./chordstudio -variables -withingroup data.xlsx
 ./chordstudio -compare oa.xlsx -timenames "Control,OA" -bygroup all control.xlsx
 ./chordstudio -compare oa.xlsx -timenames "Control,OA" -highlight OA control.xlsx
 ./chordstudio -chordwidth same -labelsize 21 -bygroup all data.xlsx
 ./chordstudio -usesheet -scale -rings group -groupword tissue data.xlsx
+./chordstudio -out results -bygroup all data.xlsx
 ```
+
+Output files are written next to the first Excel file, or into the folder given with `-out`; their names are made from the Excel file name.
 
 Several files (flags before the file names):
 
@@ -144,7 +145,7 @@ Several files (flags before the file names):
     studyA_control.xlsx studyB_control.xlsx studyA_oa.xlsx studyB_oa.xlsx
 ```
 
-New options in version 2.0:
+Options added in version 2.0 and later:
 
 | Option | Meaning |
 |---|---|
@@ -160,7 +161,8 @@ New options in version 2.0:
 | `-segments auto\|equal\|proportional` | ring segment sizes |
 | `-rings group,region,file` | extra rings |
 | `-ringlabels auto\|inside\|outside` | names inside the rings or outside with leader lines |
-| `-categories file.xlsx` | Categories sheet from another file |
+| `-strength "very strong,strong"` | strength categories to draw (default: all); version 3.0 |
+| `-out folder` | folder for the output files (version 3.0: file names are automatic) |
 | `-groupword tissue`, `-fileword study` | what the groups and files are (legend text) |
 
 Run `./chordstudio -h` for all options.
@@ -176,17 +178,19 @@ Requires Go 1.24 or newer. Run `./build.sh`. It writes the website to `docs/` an
 - `rings.go`: full-circle layout with extra rings
 - `comparelayout.go`, `compare.go`: comparison layouts (groups or files on the right) and their counts
 - `changes.go`: changes between two groups
-- `gen.go`, `session.go`: single diagrams, series, regions, several files
+- `gen.go`, `session.go`: single diagrams, regions, several files
 - `server.go`, `main.go`, `ui.html`: desktop app (local browser interface) and command line
 - `wasm_main.go`, `docs/index.html`: website build (WebAssembly); `tools/mkweb.py` creates `docs/index.html` from `ui.html`
 - `tools/make_examples.py`: creates the synthetic example files
 - `tools/package_release.py`: builds the desktop zips from `dist/`
 
+Removed in version 3.0: combine categories (`-merge`), keep apart (`-apart`), one diagram per category (`-series`), own titles (`-title`), own file-name prefix, and reading the Categories sheet from a separate file (`-categories`).
+
 ## How to cite
 
 If you use Chord Diagram Studio in a publication or presentation, please cite:
 
-> Carretero-Hernandez M. Chord Diagram Studio (version 2.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.24342463
+> Carretero-Hernandez M. Chord Diagram Studio (version 3.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23602941
 
 ## AI disclosure
 

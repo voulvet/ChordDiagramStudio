@@ -47,11 +47,8 @@ func main() {
 	alpha := flag.Float64("alpha", 0.05, "CLI: keep correlations with p <= alpha")
 	exclude := flag.String("exclude", "", "CLI: comma-separated categories to leave out")
 	order := flag.String("order", "", "CLI: comma-separated ring order")
-	apart := flag.String("apart", "", "CLI: comma-separated keywords; categories sharing a keyword are not compared")
-	merge := flag.String("merge", "", "CLI: keyword=New name[,keyword2=Name2] to combine categories")
-	series := flag.String("series", "", "CLI: comma-separated categories; one diagram per category")
-	title := flag.String("title", "", "CLI: figure title ({category} or {group} is replaced in a series)")
-	out := flag.String("out", "", "CLI: output prefix")
+	strength := flag.String("strength", "", "CLI: strength bands to draw, any of \"very strong,strong,moderate,weak\" (default: all)")
+	out := flag.String("out", "", "CLI: folder for the output files (default: the folder of the first Excel file); file names are automatic")
 	variables := flag.Bool("variables", false, "CLI: row 1/column A contain variable names (category = text before -sep)")
 	sep := flag.String("sep", "_", "CLI: separator between category and the rest of a variable name")
 	useSheet := flag.Bool("usesheet", false, "CLI: take categories/regions from the 'Variables' sheet")
@@ -76,7 +73,6 @@ func main() {
 	segments := flag.String("segments", "auto", "CLI: segment sizes: auto, equal or proportional")
 	rings := flag.String("rings", "", "CLI: extra rings, any of file,region,group (ring layout: outer rings; split layout: region)")
 	ringLabels := flag.String("ringlabels", "auto", "CLI: names inside the rings (inside) or outside with leader lines (outside); auto = inside when there are extra rings")
-	categories := flag.String("categories", "", "CLI: Excel file with a 'Categories' sheet (Category, Label, Group); default: the sheet in the data file")
 	groupWord := flag.String("groupword", "group", "CLI: what the Group column of the Categories sheet means, e.g. tissue (legend text)")
 	fileWord := flag.String("fileword", "file", "CLI: what the files are, e.g. study (legend text)")
 	flag.Parse()
@@ -119,36 +115,21 @@ func main() {
 		names = append(names, filepath.Base(p))
 	}
 	ds := dss[0]
-	o := Options{Alpha: *alpha, Exclude: splitList(*exclude), Order: splitList(*order), Apart: splitList(*apart),
-		Title: *title, Cuts: Cuts{0.8, 0.6, 0.4}, Sep: *sep, UseSheet: *useSheet, Ungrouped: *ungrouped, WithinGroup: *withinGroup}
+	o := Options{Alpha: *alpha, Exclude: splitList(*exclude), Order: splitList(*order), Strength: splitList(*strength),
+		Sep: *sep, UseSheet: *useSheet, Ungrouped: *ungrouped, WithinGroup: *withinGroup}
+	if err := validStrength(o.Strength); err != nil {
+		die(err)
+	}
 	if *variables || *useSheet || *byGroup != "" || *withinGroup || ds.LooksVariables {
 		o.Header = "variable"
 	}
-	for _, m := range splitList(*merge) {
-		kv := strings.SplitN(m, "=", 2)
-		r := MergeRule{Keyword: kv[0]}
-		if len(kv) == 2 {
-			r.Name = kv[1]
-		}
-		o.Merge = append(o.Merge, r)
+	dir := *out
+	if dir == "" {
+		dir = filepath.Dir(paths[0])
+	} else if err := os.MkdirAll(dir, 0755); err != nil {
+		die(err)
 	}
-	if *categories != "" {
-		b, err := os.ReadFile(*categories)
-		if err != nil {
-			die(err)
-		}
-		c, err := LoadCategories(b)
-		if err != nil {
-			die(*categories+":", err)
-		}
-		o.CatInfo = c
-	}
-	prefix := *out
-	if prefix == "" {
-		prefix = strings.TrimSuffix(paths[0], filepath.Ext(paths[0])) + "_chord"
-	}
-	dir, base := filepath.Split(prefix)
-	req := GenerateReq{Options: o, Mode: "single", Prefix: base, SeriesApart: true, GroupLabel: *groupLabel,
+	req := GenerateReq{Options: o, Mode: "single", GroupLabel: *groupLabel,
 		Layout: *layout, Regions: *regions, NoRegion: *noRegion, Compare: len(paths) > 1,
 		Style: Style{ChordWidth: *chordWidth, LabelSize: *labelSize, LabelWrap: *labelWrap, Scale: *scaleOn, Segments: *segments,
 			Rings: splitList(*rings), RingLabels: *ringLabels, GroupWord: *groupWord, FileWord: *fileWord}}
@@ -169,9 +150,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "warning: %s and %s differ: %d variable(s) only in the first, %d only in the second\n", names[0], names[i], chk.OnlyCount[0], chk.OnlyCount[1])
 		}
 	}
-	if *series != "" {
-		req.Mode, req.Series = "series", splitList(*series)
-	}
+
 	if *byGroup != "" {
 		req.Mode = "groups"
 		if strings.EqualFold(*byGroup, "all") {

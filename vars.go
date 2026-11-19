@@ -94,7 +94,6 @@ func (ds *Dataset) Describe(o *Options) Description {
 		if c == "" {
 			continue
 		}
-		c = o.mapCat(c)
 		if cc[c] == 0 {
 			corder = append(corder, c)
 		}

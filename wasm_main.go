@@ -54,15 +54,6 @@ func remove(_ js.Value, a []js.Value) any {
 	return jsonResult(wSess.Info())
 }
 
-// chordCatSheet(bytes) -> JSON {catSheet}
-func catSheet(_ js.Value, a []js.Value) any {
-	c, err := LoadCategories(fromJS(a[0]))
-	if err != nil {
-		return errResult(err.Error())
-	}
-	return jsonResult(map[string]any{"catSheet": c})
-}
-
 // chordCategories(requestJSON) -> JSON {categories, describe}
 func categories(_ js.Value, a []js.Value) any {
 	var req GenerateReq
@@ -143,7 +134,6 @@ func main() {
 	g := js.Global()
 	g.Set("chordLoad", js.FuncOf(load))
 	g.Set("chordRemove", js.FuncOf(remove))
-	g.Set("chordCatSheet", js.FuncOf(catSheet))
 	g.Set("chordCategories", js.FuncOf(categories))
 	g.Set("chordGenerate", js.FuncOf(generate))
 	g.Set("chordFile", js.FuncOf(file))
