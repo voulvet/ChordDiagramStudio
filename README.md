@@ -184,7 +184,6 @@ Requires Go 1.24 or newer. Run `./build.sh`. It writes the website to `docs/` an
 - `tools/make_examples.py`: creates the synthetic example files
 - `tools/package_release.py`: builds the desktop zips from `dist/`
 
-Releases: on GitHub, Actions → Release → "Run workflow" (enter the version, e.g. `3.1.0`, and tick "Draft only" for a test), or push a version tag (e.g. `v3.1.0`). The workflow (`.github/workflows/release.yml`) checks the version in `CITATION.cff`, builds the website and the desktop programs, packages the zips and publishes the GitHub release with the text from `release-notes/v<version>.md`. Tags with a hyphen (e.g. `v3.1.0-test`) give a draft release.
 
 Removed in version 3.0: combine categories (`-merge`), keep apart (`-apart`), one diagram per category (`-series`), own titles (`-title`), own file-name prefix, and reading the Categories sheet from a separate file (`-categories`).
 
