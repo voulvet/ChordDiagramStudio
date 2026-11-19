@@ -184,6 +184,8 @@ Requires Go 1.24 or newer. Run `./build.sh`. It writes the website to `docs/` an
 - `tools/make_examples.py`: creates the synthetic example files
 - `tools/package_release.py`: builds the desktop zips from `dist/`
 
+Releases: pushing a version tag (e.g. `v3.1.0`) starts `.github/workflows/release.yml`, which builds the website and the desktop programs, packages the zips and publishes the GitHub release with the text from `release-notes/<tag>.md`. Tags with a hyphen (e.g. `v3.1.0-test`) give a draft release for testing.
+
 Removed in version 3.0: combine categories (`-merge`), keep apart (`-apart`), one diagram per category (`-series`), own titles (`-title`), own file-name prefix, and reading the Categories sheet from a separate file (`-categories`).
 
 ## How to cite

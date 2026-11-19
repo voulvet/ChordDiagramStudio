@@ -1,0 +1,58 @@
+# Builds the website and the desktop programs and publishes a GitHub release
+# when a version tag is pushed, e.g. "git push origin v3.1.0".
+#
+# - Release text: release-notes/<tag>.md (e.g. release-notes/v3.1.0.md);
+#   without that file GitHub writes a short list of changes.
+# - A tag with a hyphen (e.g. v3.1.0-test) makes a DRAFT release: not public,
+#   not archived by Zenodo, and can be deleted on GitHub (Releases page).
+# - A normal tag (v3.1.0) makes a public release; Zenodo then archives it and
+#   gives the version DOI.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build website and desktop programs
+        run: ./build.sh
+
+      - name: Package desktop zips
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          python3 tools/package_release.py "${VERSION}" release
+          ls -l release
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          ARGS=(--title "Chord Diagram Studio ${VERSION%%-*}")
+          if [ -f "release-notes/${TAG}.md" ]; then
+            ARGS+=(--notes-file "release-notes/${TAG}.md")
+          else
+            ARGS+=(--generate-notes)
+          fi
+          case "${TAG}" in
+            *-*) ARGS+=(--draft) ;;
+          esac
+          gh release create "${TAG}" release/*.zip "${ARGS[@]}"
