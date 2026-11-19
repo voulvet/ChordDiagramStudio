@@ -190,7 +190,7 @@ Removed in version 3.0: combine categories (`-merge`), keep apart (`-apart`), on
 
 If you use Chord Diagram Studio in a publication or presentation, please cite:
 
-> Carretero-Hernandez M. Chord Diagram Studio (version 3.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.23602941
+> Carretero-Hernandez M. Chord Diagram Studio (version 3.0.0) [Software]. Zenodo. https://doi.org/10.5281/zenodo.24362219
 
 ## AI disclosure
 
